@@ -26,6 +26,7 @@ library(tseries)
 library(outliers)
 library(tidyverse)
 library(smooth)
+library(trend)
 library(kableExtra)
 
 # Check working directory
@@ -174,10 +175,10 @@ for (var in variable_names) {
 ```{r testing weighted average vs simple average}
 # Using the weighted average to the unemployment rate
 UE_Global_Weighted <- UE_Countries %>%
-  filter(apply(UE_Countries[, 3:14], 1, function(x) all(!is.na(x)))) %>%  # Remove rows with NAs in columns 3 to 14
+  filter(apply(UE_Countries[, 3:14], 1, function(x) all(!is.na(x)))) %>%  
   group_by(Month) %>%
   summarise(
-    Age15to24.Per = sum(Age15to24.Thou) / sum(Age15to24.Thou / Age15to24.Per),  # Confirm the logic here
+    Age15to24.Per = sum(Age15to24.Thou) / sum(Age15to24.Thou / Age15to24.Per), 
     Age25above.Per = sum(Age25above.Thou) / sum(Age25above.Thou / Age25above.Per),
     Female.Per = sum(Female.Thou) / sum(Female.Thou / Female.Per),
     Male.Per = sum(Male.Thou) / sum(Male.Thou / Male.Per),
@@ -216,5 +217,148 @@ grubbs.test(UE_Global_Weighted$Female.Per)
 grubbs.test(UE_Global_Weighted$Male.Per)
 grubbs.test(UE_Global_Weighted$Total.Thou)
 grubbs.test(UE_Global_Weighted$Total.Per)
+```
+
+```{r time series}
+# Transform into time series
+ts_UE_Global <- ts(UE_Global_Weighted[,2:11],
+                            start=c(year(UE_Global_Weighted$Month[1]), 
+                                    month(UE_Global_Weighted$Month[1])),
+                            frequency = 12)
+
+# Set the period
+nobs = nrow(UE_Global)
+n_for = 12
+
+# Create a subset for training purpose 
+ts_UE_Global_train <- ts(UE_Global_Weighted[1:(nobs-n_for),2:11],
+                                  start=c(year(UE_Global_Weighted$Month[1]),
+                                          month(UE_Global_Weighted$Month[1])),
+                                  frequency = 12)
+
+
+# Create a subset for testing purpose
+start_row = nobs - n_for + 1
+ts_UE_Global_test <- ts(UE_Global_Weighted[(nobs-n_for+1):nobs,2:11],
+                                  start=c(year(UE_Global_Weighted$Month[start_row]),
+                                          month(UE_Global_Weighted$Month[start_row])),
+                                  frequency = 12)
+
+autoplot(ts_UE_Global_train)
+autoplot(ts_UE_Global_test)
+```
+
+```{r total.per decompose}
+# Global Unemployment Rate in Percentage  
+# Decompose 
+decompose_Total.Per_train <- decompose(ts_UE_Global_train[,"Total.Per"], "additive")
+plot(decompose_Total.Per_train)
+
+# Deseason 
+deseasonal_Total.Per_train <- seasadj(decompose_Total.Per_train)  
+
+# Run the tests on deseasoned series
+print(adf.test(deseasonal_Total.Per_train, alternative = "stationary")) 
+summary(MannKendall(deseasonal_Total.Per_train))
+
+# Run the tests on original series 
+print(adf.test(ts_UE_Global_train[,"Total.Per"], alternative = "stationary")) 
+summary(SeasonalMannKendall(ts_UE_Global_train[,"Total.Per"]))
+summary(smk.test(ts_UE_Global_train[,"Total.Per"]))
+
+# Check for any differencing needed 
+print(ndiffs(ts_UE_Global_train[,"Total.Per"]))
+print(ndiffs(deseasonal_Total.Per_train))
+
+```
+
+```{r total.per models}
+# Global Unemployment Rate in Percentage 
+# Model 1: Arithmetic mean on original data
+MEAN_seas_Total.Per <- meanf(y = ts_UE_Global_Weighted_train[,"Total.Per"], h = 12)
+autoplot(MEAN_seas_Total.Per) + ylab("Global Unemployment Rate (%)")
+checkresiduals(MEAN_seas_Total.Per)
+
+# Model 2: Arithmetic mean on deseas data
+MEAN_deseas_Total.Per <- meanf(deseasonal_Total.Per_train, h=12)
+autoplot(MEAN_deseas_Total.Per)
+checkresiduals(MEAN_deseas_Total.Per)
+
+# Model 3: Seasonal naive on original data
+SNAIVE_seas_Total.Per <- snaive(ts_UE_Global_Weighted_train[,"Total.Per"], h=12)
+autoplot(SNAIVE_seas_Total.Per)
+checkresiduals(SNAIVE_seas_Total.Per)
+
+# Model 4: Naive on deseas data
+SNAIVE_deseas_Total.Per <- snaive(deseasonal_Total.Per_train, h=12)
+autoplot(SNAIVE_deseas_Total.Per)
+checkresiduals(SNAIVE_deseas_Total.Per)
+
+# Model 5: Simple moving average on original data
+SMA_seas_Total.Per <- sma( y = ts_UE_Global_Weighted_train[,"Total.Per"], h = 12, holdout = FALSE, silent = FALSE) 
+summary(SMA_seas_Total.Per)
+checkresiduals(SMA_seas_Total.Per)
+
+# Model 6: Simple moving average on deseasonal data
+SMA_deseas_Total.Per <- smooth::sma(y = deseasonal_Total.Per_train, h = 12, holdout = FALSE, silent = FALSE) 
+summary(SMA_deseas_Total.Per)
+checkresiduals(SMA_deseas_Total.Per)
+
+# Model 7:  Simple exponential smoothing on original data
+SES_seas_Total.Per <- ses(y = ts_UE_Global_Weighted_train[,"Total.Per"], h = 12, holdout = FALSE, silent = FALSE)
+summary(SES_seas_Total.Per)
+autoplot(SES_seas_Total.Per)
+checkresiduals(SES_seas_Total.Per)
+
+# Model 8:  Simple exponential smoothing on deseasonal data
+SES_deseas_Total.per = ses( y = deseasonal_Total.Per_train, h = 12, holdout = FALSE, silent = FALSE)  
+summary(SES_deseas_Total.per)
+autoplot(SES_deseas_Total.per)
+checkresiduals(SES_seas_Total.Per)
+
+# Model 9:  SARIMA on original data
+SARIMA_Total.per <- auto.arima(ts_UE_Global_Weighted_train[,"Total.Per"])
+print(SARIMA_Total.per)
+
+SARIMA_forecast_Total.per <- forecast(object = SARIMA_Total.per, h = 12)
+autoplot(SARIMA_forecast_Total.per)
+checkresiduals(SARIMA_forecast_Total.per)
+
+# Model 10:  ARIMA on deseasonal data
+ARIMA_Total.per <- auto.arima(deseasonal_Total.Per_train, max.D = 0, max.P = 0, max.Q = 0)
+print(ARIMA_Total.per)
+
+ARIMA_forecast_Total.per <- forecast(object = ARIMA_Total.per, h = 12)
+autoplot(ARIMA_forecast_Total.per)
+checkresiduals(ARIMA_forecast_Total.per)
+
+# Note: So far, the SARIMA is the best model. Ljung-Box test shows that the model does not have any evidence of temporary correlation. 
+
+# SARIMA Model 
+autoplot(ts_UE_Global_Weighted[,"Total.Per"]) +
+  autolayer(SARIMA_forecast_Total.per, series="SARIMA",PI=FALSE) +
+  ylab("Global Employment Rate (%)")
+
+## Other Advanced Models
+# Model 11:  ARIMA + FOURIER 
+ARIMA_Four_Total.per <- auto.arima(ts_UE_Global_Weighted_train[,"Total.Per"], 
+                             seasonal=FALSE, 
+                             lambda=0,
+                             xreg=fourier(ts_UE_Global_Weighted_train[,"Total.Per"], 
+                                          K=2)
+                             )
+
+#Forecast with ARIMA fit
+#also need to specify h for fourier terms
+ARIMA_Four_for_Total.per <- forecast(ARIMA_Four_Total.per,
+                           xreg=fourier(ts_UE_Global_Weighted_train[,"Total.Per"],
+                                        K=2,
+                                        h=12),
+                           h=12
+                           ) 
+
+autoplot(ARIMA_Four_for_Total.per)
+checkresiduals(ARIMA_Four_Total.per)
+
 ```
 
