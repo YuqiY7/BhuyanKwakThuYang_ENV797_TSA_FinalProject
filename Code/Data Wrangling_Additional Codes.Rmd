@@ -275,7 +275,7 @@ print(ndiffs(deseasonal_Total.Per_train))
 ```{r total.per models}
 # Global Unemployment Rate in Percentage 
 # Model 1: Arithmetic mean on original data
-MEAN_seas_Total.Per <- meanf(y = ts_UE_Global_Weighted_train[,"Total.Per"], h = 12)
+MEAN_seas_Total.Per <- meanf(y = ts_UE_Global_train[,"Total.Per"], h = 12)
 autoplot(MEAN_seas_Total.Per) + ylab("Global Unemployment Rate (%)")
 checkresiduals(MEAN_seas_Total.Per)
 
@@ -285,7 +285,7 @@ autoplot(MEAN_deseas_Total.Per)
 checkresiduals(MEAN_deseas_Total.Per)
 
 # Model 3: Seasonal naive on original data
-SNAIVE_seas_Total.Per <- snaive(ts_UE_Global_Weighted_train[,"Total.Per"], h=12)
+SNAIVE_seas_Total.Per <- snaive(ts_UE_Global_train[,"Total.Per"], h=12)
 autoplot(SNAIVE_seas_Total.Per)
 checkresiduals(SNAIVE_seas_Total.Per)
 
@@ -295,7 +295,7 @@ autoplot(SNAIVE_deseas_Total.Per)
 checkresiduals(SNAIVE_deseas_Total.Per)
 
 # Model 5: Simple moving average on original data
-SMA_seas_Total.Per <- sma( y = ts_UE_Global_Weighted_train[,"Total.Per"], h = 12, holdout = FALSE, silent = FALSE) 
+SMA_seas_Total.Per <- sma( y = ts_UE_Global_train[,"Total.Per"], h = 12, holdout = FALSE, silent = FALSE) 
 summary(SMA_seas_Total.Per)
 checkresiduals(SMA_seas_Total.Per)
 
@@ -305,7 +305,7 @@ summary(SMA_deseas_Total.Per)
 checkresiduals(SMA_deseas_Total.Per)
 
 # Model 7:  Simple exponential smoothing on original data
-SES_seas_Total.Per <- ses(y = ts_UE_Global_Weighted_train[,"Total.Per"], h = 12, holdout = FALSE, silent = FALSE)
+SES_seas_Total.Per <- ses(y = ts_UE_Global_train[,"Total.Per"], h = 12, holdout = FALSE, silent = FALSE)
 summary(SES_seas_Total.Per)
 autoplot(SES_seas_Total.Per)
 checkresiduals(SES_seas_Total.Per)
@@ -317,7 +317,7 @@ autoplot(SES_deseas_Total.per)
 checkresiduals(SES_seas_Total.Per)
 
 # Model 9:  SARIMA on original data
-SARIMA_Total.per <- auto.arima(ts_UE_Global_Weighted_train[,"Total.Per"])
+SARIMA_Total.per <- auto.arima(ts_UE_Global_train[,"Total.Per"])
 print(SARIMA_Total.per)
 
 SARIMA_forecast_Total.per <- forecast(object = SARIMA_Total.per, h = 12)
@@ -335,23 +335,23 @@ checkresiduals(ARIMA_forecast_Total.per)
 # Note: So far, the SARIMA is the best model. Ljung-Box test shows that the model does not have any evidence of temporary correlation. 
 
 # SARIMA Model 
-autoplot(ts_UE_Global_Weighted[,"Total.Per"]) +
+autoplot(ts_UE_Global[,"Total.Per"]) +
   autolayer(SARIMA_forecast_Total.per, series="SARIMA",PI=FALSE) +
   ylab("Global Employment Rate (%)")
 
 ## Other Advanced Models
 # Model 11:  ARIMA + FOURIER 
-ARIMA_Four_Total.per <- auto.arima(ts_UE_Global_Weighted_train[,"Total.Per"], 
+ARIMA_Four_Total.per <- auto.arima(ts_UE_Global_train[,"Total.Per"], 
                              seasonal=FALSE, 
                              lambda=0,
-                             xreg=fourier(ts_UE_Global_Weighted_train[,"Total.Per"], 
+                             xreg=fourier(ts_UE_Global_train[,"Total.Per"], 
                                           K=2)
                              )
 
 #Forecast with ARIMA fit
 #also need to specify h for fourier terms
 ARIMA_Four_for_Total.per <- forecast(ARIMA_Four_Total.per,
-                           xreg=fourier(ts_UE_Global_Weighted_train[,"Total.Per"],
+                           xreg=fourier(ts_UE_Global_train[,"Total.Per"],
                                         K=2,
                                         h=12),
                            h=12
