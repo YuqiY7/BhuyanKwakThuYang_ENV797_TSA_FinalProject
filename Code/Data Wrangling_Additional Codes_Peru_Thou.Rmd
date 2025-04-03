@@ -943,10 +943,10 @@ print(accuracy_2016)
 print(accuracy_2017)
 print(accuracy_2018)
 
-checkresiduals(accuracy_2015)
-checkresiduals(accuracy_2016)
-checkresiduals(accuracy_2017)
-checkresiduals(accuracy_2018)
+checkresiduals(TBATS_2015)
+checkresiduals(TBATS_2016)
+checkresiduals(TBATS_2017)
+checkresiduals(TBATS_2018)
 
 # ==============================
 # 6. Plot forecast results for all models
