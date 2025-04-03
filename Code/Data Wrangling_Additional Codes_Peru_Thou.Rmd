@@ -1,0 +1,1104 @@
+---
+title: "Data Wrangling"
+author: "Aye Nyein Thu"
+date: "2025-03-24"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r load packages, warning=FALSE, message=FALSE}
+# Load required packages
+library(readxl)
+library(openxlsx)
+library(writexl)
+library(dplyr)
+library(lubridate)
+library(ggplot2)
+library(cowplot)
+library(forecast)  
+library(Kendall)
+library(tseries)
+library(outliers)
+library(tidyverse)
+library(smooth)
+library(trend)
+library(kableExtra)
+library(imputeTS)
+library(cowplot)
+
+# Check working directory
+getwd()
+```
+
+```{r importing data and initial data wrangling, results='hide', warning=FALSE, message=FALSE}
+## Raw Data Set: Unemployment Rate by Age (Thousands)
+# Import data set
+UEAge.Thou <- read_excel(
+  path="./Data/Raw/UE_Age(Thousands).xlsx", sheet = "Sheet1", col_names = TRUE)
+
+# Format data set
+UEAge.Thou_Processed <- UEAge.Thou %>%
+  mutate(
+    Month = ym(sub("M", "-", Month)), 
+    Age15to24.Thou = as.numeric(`15-24`), 
+    Age25above.Thou = as.numeric(`25+`),   
+    AgeTotal.Thou = as.numeric(`15+`)) %>% 
+  rename(Country="Reference area") %>% 
+  select(Country,Month,Age15to24.Thou, Age25above.Thou, AgeTotal.Thou) %>% 
+  arrange(Country, Month)
+
+## Raw Data Set: Unemployment Rate by Age (%)
+# Import data set
+UEAge.Per <- read_excel(
+  path="./Data/Raw/UE_Age(%).xlsx", sheet = "Sheet1", col_names = TRUE)
+
+# Format data set
+UEAge.Per_Processed <- UEAge.Per %>%
+  mutate(
+    Month = ym(sub("M", "-", Month)), 
+    Age15to24.Per = as.numeric(`15-24`), 
+    Age25above.Per = as.numeric(`25+`),   
+    AgeTotal.Per = as.numeric(`15+`)) %>% 
+  rename(Country="Reference area") %>% 
+  select(Country,Month,Age15to24.Per, Age25above.Per, AgeTotal.Per) %>% 
+  arrange(Country, Month)
+
+## Raw Data Set: Unemployment Rate by Gender (Thousands)
+# Import data set
+UEGender.Thou <- read_excel(
+  path="./Data/Raw/UE_Gender(Thousands).xlsx", sheet = "Sheet1", col_names = TRUE)
+
+# Format data set
+UEGender.Thou_Processed <- UEGender.Thou %>%
+  mutate(
+    Month = ym(sub("M", "-", Month)), 
+    Female.Thou = as.numeric(Female), 
+    Male.Thou = as.numeric(Male),   
+    Total.Thou = as.numeric(Total)) %>% 
+  rename(Country="Reference area") %>% 
+  select(Country,Month,Female.Thou, Male.Thou, Total.Thou) %>% 
+  arrange(Country, Month)
+
+## Raw Data Set: Unemployment Rate by Gender (%)
+# Import data set
+UEGender.Per <- read_excel(
+  path="./Data/Raw/UE_Gender(%).xlsx", sheet = "Sheet1", col_names = TRUE)
+
+# Format data set
+UEGender.Per_Processed <- UEGender.Per %>%
+  mutate(
+    Month = ym(sub("M", "-", Month)), 
+    Female.Per = as.numeric(Female), 
+    Male.Per = as.numeric(Male),   
+    Total.Per = as.numeric(Total)) %>% 
+  rename(Country="Reference area") %>% 
+  select(Country,Month,Female.Per, Male.Per, Total.Per) %>% 
+  arrange(Country, Month)
+```
+
+```{r family data wrangling and formatting, warning=FALSE, message=FALSE}
+# Combine all processed data sets by country
+UE_Countries <- UEAge.Thou_Processed %>% 
+  left_join(UEAge.Per_Processed, by=c("Country", "Month")) %>% 
+  left_join(UEGender.Thou_Processed, by=c("Country", "Month")) %>% 
+  left_join(UEGender.Per_Processed, by=c("Country", "Month")) 
+  
+# Print summary and check missing values
+summary(UE_Countries)
+sum(is.na(UE_Countries))
+print(length(unique(UE_Countries$Country)))
+
+# Combined as global unemployment rate
+UE_Global <- UE_Countries %>%
+  group_by(Month) %>%
+  summarise(
+    Age15to24.Thou = mean(`Age15to24.Thou`, na.rm = TRUE),
+    Age25above.Thou = mean(`Age25above.Thou`, na.rm = TRUE), 
+    AgeTotal.Thou = mean(`AgeTotal.Thou`, na.rm = TRUE), 
+    Age15to24.Per = mean(`Age15to24.Thou`, na.rm = TRUE),
+    Age25above.Per = mean(`Age25above.Per`, na.rm = TRUE), 
+    AgeTotal.Per = mean(`AgeTotal.Per`, na.rm = TRUE), 
+    Female.Thou = mean(`Female.Thou`, na.rm = TRUE),
+    Male.Thou = mean(`Male.Thou`, na.rm = TRUE),
+    Total.Thou = mean(`Total.Thou`, na.rm = TRUE),
+    Female.Per = mean(`Female.Per`, na.rm = TRUE),
+    Male.Per = mean(`Male.Per`, na.rm = TRUE),
+    Total.Per = mean(`Total.Per`, na.rm = TRUE))
+
+# Print summary and check missing values
+summary(UE_Global)
+sum(is.na(UE_Global))
+```
+
+```{r save processed files in the processed folder}
+# Save all the modified files in the processed folder 
+write.xlsx(UEAge.Thou_Processed, "Data/Processed/UEAge.Thou_Processed.xlsx")
+write.xlsx(UEAge.Per_Processed, "Data/Processed/UEAge.Per_Processed.xlsx")
+write.xlsx(UEGender.Thou_Processed, "Data/Processed/UEGender.Thou_Processed.xlsx")
+write.xlsx(UEGender.Per_Processed, "Data/Processed/UEGender.Per_Processed.xlsx")
+write.xlsx(UE_Countries, "Data/Processed/UE_Countries.xlsx")
+write.xlsx(UE_Global, "Data/Processed/UE_Global.xlsx")
+```
+
+```{r initial plot, warning=FALSE, message=FALSE}
+# Initial time series plots for each variable
+variable_names <- colnames(UE_Global)[colnames(UE_Global) != "Month"]
+
+for (var in variable_names) {
+  print(ggplot(UE_Global, aes(x = Month, y = .data[[var]])) +
+    geom_line(color = "blue") +
+    labs(title = paste("Time Series of", var),
+         x = "Month", y = var)) }
+
+# Transform into time series object
+ts_UE_Global <- ts(UE_Global, start=c(1948,1), frequency = 12)
+
+# ACF and PACF plots for each variable
+for (var in variable_names) {
+  par(mfrow = c(1, 2)) 
+  Acf(UE_Global[[var]], lag.max = 40, main = paste("ACF of", var))
+  Pacf(UE_Global[[var]], lag.max = 40, main = paste("PACF of", var))
+}
+
+# Decomposition plots for each variable 
+for (var in variable_names) {
+  decomposed_ts <- decompose(ts_UE_Global[, var]) 
+  plot(decomposed_ts)  
+  title(main = paste("For", var)) 
+}
+
+```
+
+```{r testing weighted average vs simple average}
+# Using the weighted average to the unemployment rate
+UE_Global_Weighted <- UE_Countries %>%
+  filter(apply(UE_Countries[, 3:14], 1, function(x) all(!is.na(x)))) %>%  
+  group_by(Month) %>%
+  summarise(
+    Age15to24.Per = sum(Age15to24.Thou) / sum(Age15to24.Thou / Age15to24.Per), 
+    Age25above.Per = sum(Age25above.Thou) / sum(Age25above.Thou / Age25above.Per),
+    Female.Per = sum(Female.Thou) / sum(Female.Thou / Female.Per),
+    Male.Per = sum(Male.Thou) / sum(Male.Thou / Male.Per),
+    Total.Per = sum(Total.Thou) / sum(Total.Thou / Total.Per),
+    
+    Age15to24.Thou = mean(Age15to24.Thou, na.rm = TRUE),
+    Age25above.Thou = mean(Age25above.Thou, na.rm = TRUE),
+    Female.Thou = mean(Female.Thou, na.rm = TRUE),
+    Male.Thou = mean(Male.Thou, na.rm = TRUE),
+    Total.Thou = mean(Total.Thou, na.rm = TRUE)
+  )
+
+# Plot 
+UE_Global_combined <- bind_rows(
+  UE_Global %>% mutate(Source = "UE_Global"),
+  UE_Global_Weighted %>% mutate(Source = "UE_Global_Weighted")
+)
+
+ggplot(UE_Global_combined, aes(x = Month, y = Total.Per, color = Source)) +
+  geom_line() +               
+  labs(title = "Global Unemployment Rate: Weighted vs Simple Average",
+       x = "Month", y = "Global Unemployment Rate (%)", color = "Source") +
+  theme_minimal() 
+
+```
+
+```{r finding the outliers}
+outlier(UE_Global_Weighted) 
+grubbs.test(UE_Global_Weighted$Age15to24.Thou) 
+grubbs.test(UE_Global_Weighted$Age25above.Thou) # This is an outlier. 
+grubbs.test(UE_Global_Weighted$Age15to24.Per) 
+grubbs.test(UE_Global_Weighted$Age25above.Per)
+grubbs.test(UE_Global_Weighted$Female.Thou)
+grubbs.test(UE_Global_Weighted$Male.Thou)
+grubbs.test(UE_Global_Weighted$Female.Per)
+grubbs.test(UE_Global_Weighted$Male.Per)
+grubbs.test(UE_Global_Weighted$Total.Thou)
+grubbs.test(UE_Global_Weighted$Total.Per)
+```
+
+```{r time series}
+# Transform into time series
+ts_UE_Global <- ts(UE_Global_Weighted[,2:11],
+                            start=c(year(UE_Global_Weighted$Month[1]), 
+                                    month(UE_Global_Weighted$Month[1])),
+                            frequency = 12)
+
+# Set the period
+nobs = nrow(UE_Global)
+n_for = 12
+
+# Create a subset for training purpose 
+ts_UE_Global_train <- ts(UE_Global_Weighted[1:(nobs-n_for),2:11],
+                                  start=c(year(UE_Global_Weighted$Month[1]),
+                                          month(UE_Global_Weighted$Month[1])),
+                                  frequency = 12)
+
+
+# Create a subset for testing purpose
+start_row = nobs - n_for + 1
+ts_UE_Global_test <- ts(UE_Global_Weighted[(nobs-n_for+1):nobs,2:11],
+                                  start=c(year(UE_Global_Weighted$Month[start_row]),
+                                          month(UE_Global_Weighted$Month[start_row])),
+                                  frequency = 12)
+
+autoplot(ts_UE_Global_train)
+autoplot(ts_UE_Global_test)
+```
+
+```{r total.per decompose}
+# Global Unemployment Rate in Percentage  
+# Decompose 
+decompose_Total.Per_train <- decompose(ts_UE_Global_train[,"Total.Per"], "additive")
+plot(decompose_Total.Per_train)
+
+# Deseason 
+deseasonal_Total.Per_train <- seasadj(decompose_Total.Per_train)  
+
+# Run the tests on deseasoned series
+print(adf.test(deseasonal_Total.Per_train, alternative = "stationary")) 
+summary(MannKendall(deseasonal_Total.Per_train))
+
+# Run the tests on original series 
+print(adf.test(ts_UE_Global_train[,"Total.Per"], alternative = "stationary")) 
+summary(SeasonalMannKendall(ts_UE_Global_train[,"Total.Per"]))
+summary(smk.test(ts_UE_Global_train[,"Total.Per"]))
+
+# Check for any differencing needed 
+print(ndiffs(ts_UE_Global_train[,"Total.Per"]))
+print(ndiffs(deseasonal_Total.Per_train))
+
+```
+
+```{r total.per models}
+# Global Unemployment Rate in Percentage 
+# Model 1: Arithmetic mean on original data
+MEAN_seas_Total.Per <- meanf(y = ts_UE_Global_train[,"Total.Per"], h = 12)
+autoplot(MEAN_seas_Total.Per) + ylab("Global Unemployment Rate (%)")
+checkresiduals(MEAN_seas_Total.Per)
+
+# Model 2: Arithmetic mean on deseas data
+MEAN_deseas_Total.Per <- meanf(deseasonal_Total.Per_train, h=12)
+autoplot(MEAN_deseas_Total.Per)
+checkresiduals(MEAN_deseas_Total.Per)
+
+# Model 3: Seasonal naive on original data
+SNAIVE_seas_Total.Per <- snaive(ts_UE_Global_train[,"Total.Per"], h=12)
+autoplot(SNAIVE_seas_Total.Per)
+checkresiduals(SNAIVE_seas_Total.Per)
+
+# Model 4: Naive on deseas data
+SNAIVE_deseas_Total.Per <- snaive(deseasonal_Total.Per_train, h=12)
+autoplot(SNAIVE_deseas_Total.Per)
+checkresiduals(SNAIVE_deseas_Total.Per)
+
+# Model 5: Simple moving average on original data
+SMA_seas_Total.Per <- sma( y = ts_UE_Global_train[,"Total.Per"], h = 12, holdout = FALSE, silent = FALSE) 
+summary(SMA_seas_Total.Per)
+checkresiduals(SMA_seas_Total.Per)
+
+# Model 6: Simple moving average on deseasonal data
+SMA_deseas_Total.Per <- smooth::sma(y = deseasonal_Total.Per_train, h = 12, holdout = FALSE, silent = FALSE) 
+summary(SMA_deseas_Total.Per)
+checkresiduals(SMA_deseas_Total.Per)
+
+# Model 7:  Simple exponential smoothing on original data
+SES_seas_Total.Per <- ses(y = ts_UE_Global_train[,"Total.Per"], h = 12, holdout = FALSE, silent = FALSE)
+summary(SES_seas_Total.Per)
+autoplot(SES_seas_Total.Per)
+checkresiduals(SES_seas_Total.Per)
+
+# Model 8:  Simple exponential smoothing on deseasonal data
+SES_deseas_Total.per = ses( y = deseasonal_Total.Per_train, h = 12, holdout = FALSE, silent = FALSE)  
+summary(SES_deseas_Total.per)
+autoplot(SES_deseas_Total.per)
+checkresiduals(SES_seas_Total.Per)
+
+# Model 9:  SARIMA on original data
+SARIMA_Total.per <- auto.arima(ts_UE_Global_train[,"Total.Per"])
+print(SARIMA_Total.per)
+
+SARIMA_forecast_Total.per <- forecast(object = SARIMA_Total.per, h = 12)
+autoplot(SARIMA_forecast_Total.per)
+checkresiduals(SARIMA_forecast_Total.per)
+
+# Model 10:  ARIMA on deseasonal data
+ARIMA_Total.per <- auto.arima(deseasonal_Total.Per_train, max.D = 0, max.P = 0, max.Q = 0)
+print(ARIMA_Total.per)
+
+ARIMA_forecast_Total.per <- forecast(object = ARIMA_Total.per, h = 12)
+autoplot(ARIMA_forecast_Total.per)
+checkresiduals(ARIMA_forecast_Total.per)
+
+# Note: So far, the SARIMA is the best model. Ljung-Box test shows that the model does not have any evidence of temporary correlation. 
+
+# SARIMA Model 
+autoplot(ts_UE_Global[,"Total.Per"]) +
+  autolayer(SARIMA_forecast_Total.per, series="SARIMA",PI=FALSE) +
+  ylab("Global Employment Rate (%)")
+
+## Other Advanced Models
+# Model 11:  ARIMA + FOURIER 
+ARIMA_Four_Total.per <- auto.arima(ts_UE_Global_train[,"Total.Per"], 
+                             seasonal=FALSE, 
+                             lambda=0,
+                             xreg=fourier(ts_UE_Global_train[,"Total.Per"], 
+                                          K=2)
+                             )
+
+#Forecast with ARIMA fit
+#also need to specify h for fourier terms
+ARIMA_Four_for_Total.per <- forecast(ARIMA_Four_Total.per,
+                           xreg=fourier(ts_UE_Global_train[,"Total.Per"],
+                                        K=2,
+                                        h=12),
+                           h=12
+                           ) 
+
+autoplot(ARIMA_Four_for_Total.per)
+checkresiduals(ARIMA_Four_Total.per)
+
+```
+
+
+# Checking the data of the unemployment in Peru(Thousand)
+```{r}
+# Filter Peru data for AgeTotal.Thou
+peru_total_thou <- UE_Countries %>% 
+  filter(Country == "Peru") %>% 
+  select(Month, AgeTotal.Thou) %>% 
+  arrange(Month) %>% 
+  drop_na()
+
+# Check for missing values
+summary(peru_total_thou)
+sum(is.na(peru_total_thou$AgeTotal.Thou))  # Result: No NAs
+
+# Check for structural breaks or level shifts
+ggplot(peru_total_thou, aes(x = Month, y = AgeTotal.Thou)) +
+  geom_line(color = "steelblue") +
+  labs(title = "Peru Unemployment (15+) Over Time", y = "Thousands", x = "Month")
+
+# Check regularity of time index
+diff_date <- diff(peru_total_thou$Month)
+table(diff_date)  # There's one missing month.
+
+
+# Create full monthly sequence
+full_month_seq <- data.frame(Month = seq.Date(from = min(peru_total_thou$Month),
+                                              to = max(peru_total_thou$Month),
+                                              by = "month"))
+
+# Join with original to find missing months
+missing_months <- full_month_seq %>%
+  anti_join(peru_total_thou, by = "Month")
+
+print(missing_months)  # Missing month is 2012-09-01
+
+# Fill in missing months with NA
+peru_total_thou <- full_month_seq %>%
+  left_join(peru_total_thou, by = "Month")
+
+
+# Check for outliers visually
+boxplot(peru_total_thou$AgeTotal.Thou,
+        main = "Boxplot: Peru AgeTotal.Thou",
+        horizontal = TRUE,
+        col = "lightblue")
+
+
+# Convert to time series
+ts_peru_thou <- ts(peru_total_thou$AgeTotal.Thou, 
+                   start = c(year(min(peru_total_thou$Month)), 
+                             month(min(peru_total_thou$Month))), 
+                   frequency = 12)
+
+# interpolation of NA
+ts_peru_thou <- na_interpolation(ts_peru_thou, option = "linear")
+
+# Decompose the time series
+decomp_peru_thou <- decompose(ts_peru_thou)
+plot(decomp_peru_thou)
+
+# ACF and PACF plots
+par(mfrow = c(1, 2))
+Acf(ts_peru_thou, lag.max = 40, main = "ACF: Peru AgeTotal.Thou")
+Pacf(ts_peru_thou, lag.max = 40, main = "PACF: Peru AgeTotal.Thou")
+par(mfrow = c(1,1))  # Reset layout
+
+# Grubbs test for outliers
+grubbs.test(ts_peru_thou)
+
+# Find the row where AgeTotal.Thou is the outlier (1229.5)
+outlier_row <- peru_total_thou %>%
+  filter(AgeTotal.Thou == max(AgeTotal.Thou, na.rm = TRUE))
+
+print(outlier_row)
+
+```
+
+# Forecasting the unemployment in Peru(Thousand)
+```{r}
+
+# 1. Split into training & test set
+n_for <- 12
+ts_train <- window(ts_peru_thou, end = c(time(ts_peru_thou)[length(ts_peru_thou)-n_for]))
+ts_test  <- window(ts_peru_thou, start = c(time(ts_peru_thou)[length(ts_peru_thou)-n_for + 1]))
+
+# 2. STL + ETS
+ETS_fit <- stlf(ts_train, h = n_for)
+autoplot(ETS_fit) + ylab("Peru Unemployment (Thousands)")
+
+# 3. ARIMA + Fourier (monthly seasonality: 12)
+ARIMA_Four_fit <- auto.arima(ts_train,
+                              seasonal = FALSE,
+                              lambda = 0,
+                              xreg = fourier(ts_train, K = 3))
+
+ARIMA_Four_for <- forecast(ARIMA_Four_fit,
+                            xreg = fourier(ts_train, K = 3, h = n_for),
+                            h = n_for)
+
+autoplot(ARIMA_Four_for) + ylab("Peru Unemployment (Thousands)")
+
+# 4. TBATS
+TBATS_fit <- tbats(ts_train)
+TBATS_for <- forecast(TBATS_fit, h = n_for)
+autoplot(TBATS_for) + ylab("Peru Unemployment (Thousands)")
+
+# 5. Neural Network with Fourier
+NN_fit <- nnetar(ts_train, p = 1, P = 0,
+                 xreg = fourier(ts_train, K = 3))
+NN_for <- forecast(NN_fit, h = n_for,
+                   xreg = fourier(ts_train, K = 3, h = n_for))
+autoplot(NN_for) + ylab("Peru Unemployment (Thousands)")
+
+# 예측 정확도 비교
+ETS_scores   <- accuracy(ETS_fit$mean, ts_test)
+ARIMA_scores <- accuracy(ARIMA_Four_for$mean, ts_test)
+TBATS_scores <- accuracy(TBATS_for$mean, ts_test)
+NN_scores    <- accuracy(NN_for$mean, ts_test)
+
+# 하나로 묶어서 테이블 생성
+scores <- as.data.frame(rbind(ETS_scores, ARIMA_scores, TBATS_scores, NN_scores))
+row.names(scores) <- c("STL+ETS", "ARIMA+Fourier", "TBATS", "NN")
+
+# 결과 확인
+print(scores)
+
+# 가장 낮은 RMSE를 가진 모델 찾기
+best_model_index <- which.min(scores$RMSE)
+cat("✅ Best model by RMSE is:", row.names(scores[best_model_index,]))
+
+```
+
+```{r}
+# 최근 24개월 실제 값 추출
+ts_last_24 <- window(ts_peru_thou, start = c(time(ts_peru_thou)[length(ts_peru_thou)-23]))
+
+# 예측값 시계열 (시작 시점 = ts_test의 시작 시점과 동일하게 설정)
+start_forecast <- time(ts_test)[1]
+
+ETS_pred_ts   <- ts(ETS_fit$mean,   start = start_forecast, frequency = 12)
+ARIMA_pred_ts <- ts(ARIMA_Four_for$mean, start = start_forecast, frequency = 12)
+TBATS_pred_ts <- ts(TBATS_for$mean, start = start_forecast, frequency = 12)
+NN_pred_ts    <- ts(NN_for$mean,    start = start_forecast, frequency = 12)
+
+# 그래프 그리기
+autoplot(ts_last_24, series = "Actual") +
+  autolayer(ETS_pred_ts,   series = "STL+ETS",        PI = FALSE) +
+  autolayer(ARIMA_pred_ts, series = "ARIMA+Fourier",  PI = FALSE) +
+  autolayer(TBATS_pred_ts, series = "TBATS",          PI = FALSE) +
+  autolayer(NN_pred_ts,    series = "Neural Network", PI = FALSE) +
+  xlab("Time") + ylab("Unemployed (Thousands)") +
+  ggtitle("Forecast Comparison: Last 24 Months (Actual + 12-Month Forecast)") +
+  guides(colour = guide_legend(title = "Series"))
+
+```
+
+
+# Add the level shift(Whole date with dummies(after 2022 January))
+```{r}
+
+# STEP 1: Forecast settings
+n_for <- 12
+
+# STEP 2: Split into training and test sets
+ts_peru_thou_level_train <- window(ts_peru_thou, end = c(time(ts_peru_thou)[length(ts_peru_thou) - n_for]))
+ts_peru_thou_level_test  <- window(ts_peru_thou, start = c(time(ts_peru_thou)[length(ts_peru_thou) - n_for + 1]))
+
+# STEP 3: Create intervention dummy (1 from Jan 2022 onward)
+intervention_dummy <- ifelse(time(ts_peru_thou) >= 2022, 1, 0)
+dummy_train <- window(intervention_dummy, end = time(ts_peru_thou_level_train)[length(ts_peru_thou_level_train)])
+dummy_test  <- window(intervention_dummy, start = time(ts_peru_thou_level_test)[1])
+
+# STEP 4: Generate Fourier terms with K = 3
+fourier_train <- fourier(ts_peru_thou_level_train, K = 3)
+fourier_test  <- fourier(ts_peru_thou_level_train, K = 3, h = n_for)
+
+# STEP 5: Combine xreg matrices and align column names
+xreg_train <- cbind(dummy = dummy_train, fourier_train)
+xreg_test  <- cbind(dummy = dummy_test, fourier_test)
+colnames(xreg_test) <- colnames(xreg_train)  # ⚠️ Ensure identical column names
+
+# === MODEL 1: STL + ETS ===
+ETS_fit <- stlf(ts_peru_thou_level_train, h = n_for)
+ETS_forecast <- ETS_fit$mean
+p1 <- autoplot(ts_peru_thou_level_test, series = "Actual") +
+  autolayer(ETS_forecast, series = "STL+ETS") +
+  ggtitle("STL + ETS") + theme_minimal() + theme(legend.position = "none")
+
+# === MODEL 2: ARIMA + Fourier + Intervention ===
+ARIMA_fit <- auto.arima(ts_peru_thou_level_train, seasonal = FALSE, lambda = 0, xreg = xreg_train)
+ARIMA_forecast <- forecast(ARIMA_fit, xreg = xreg_test, h = n_for)$mean
+p2 <- autoplot(ts_peru_thou_level_test, series = "Actual") +
+  autolayer(ARIMA_forecast, series = "ARIMA+Fourier+Intervention") +
+  ggtitle("ARIMA + Fourier + Intervention") + theme_minimal() + theme(legend.position = "none")
+
+# === MODEL 3: TBATS ===
+TBATS_fit <- tbats(ts_peru_thou_level_train)
+TBATS_forecast <- forecast(TBATS_fit, h = n_for)$mean
+p3 <- autoplot(ts_peru_thou_level_test, series = "Actual") +
+  autolayer(TBATS_forecast, series = "TBATS") +
+  ggtitle("TBATS") + theme_minimal() + theme(legend.position = "none")
+
+# === MODEL 4: Neural Network + Fourier + Intervention ===
+NN_fit <- nnetar(ts_peru_thou_level_train, p = 1, P = 0, xreg = xreg_train)
+NN_forecast <- forecast(NN_fit, h = n_for, xreg = xreg_test)$mean
+p4 <- autoplot(ts_peru_thou_level_test, series = "Actual") +
+  autolayer(NN_forecast, series = "Neural Network") +
+  ggtitle("Neural Network") + theme_minimal() + theme(legend.position = "none")
+
+# Define start time for forecasts
+start_forecast <- time(ts_peru_thou_level_test)[1]
+
+# Create time series objects for each forecast (aligned to test start)
+ETS_ts   <- ts(ETS_forecast,   start = start_forecast, frequency = 12)
+ARIMA_ts <- ts(ARIMA_forecast, start = start_forecast, frequency = 12)
+TBATS_ts <- ts(TBATS_forecast, start = start_forecast, frequency = 12)
+NN_ts    <- ts(NN_forecast,    start = start_forecast, frequency = 12)
+
+# Extract last 24 months of actual data
+ts_last_24 <- window(ts_peru_thou, start = c(time(ts_peru_thou)[length(ts_peru_thou) - 23]))
+
+# Combine into one plot with thicker lines (size = 1.2)
+autoplot(ts_last_24, series = "Actual", size = 1.2) +
+  autolayer(ETS_ts,   series = "STL+ETS", size = 1.2) +
+  autolayer(ARIMA_ts, series = "ARIMA+Fourier+Intervention", size = 1.2) +
+  autolayer(TBATS_ts, series = "TBATS", size = 1.2) +
+  autolayer(NN_ts,    series = "Neural Network", size = 1.2) +
+  ggtitle("Forecast Comparison: Last 24 Months (Actual + 12-Month Forecast)") +
+  ylab("Unemployed (Thousands)") +
+  xlab("Time") +
+  guides(colour = guide_legend(title = "Series")) +
+  theme_minimal()
+
+
+
+# === STEP 6: Forecast accuracy ===
+ETS_scores   <- accuracy(ETS_forecast, ts_peru_thou_level_test)
+ARIMA_scores <- accuracy(ARIMA_forecast, ts_peru_thou_level_test)
+TBATS_scores <- accuracy(TBATS_forecast, ts_peru_thou_level_test)
+NN_scores    <- accuracy(NN_forecast, ts_peru_thou_level_test)
+
+# Combine accuracy scores
+scores_level <- as.data.frame(rbind(ETS_scores, ARIMA_scores, TBATS_scores, NN_scores))
+row.names(scores_level) <- c("STL+ETS", "ARIMA+Fourier+Intervention", "TBATS", "Neural Network")
+
+print(round(scores_level, 2))
+
+# Identify the best model by RMSE
+best_model_index <- which.min(scores_level$RMSE)
+cat("✅ Best model by RMSE is:", row.names(scores_level[best_model_index,]), "\n")
+
+```
+
+# Add the level shift(2015+data,2018+data with dummies(after 2022 January))
+```{r}
+
+### ==========================
+### 1. 2015+ Data with dummy (from 2022 Jan)
+### ==========================
+
+# STEP 1: Filter data from 2015
+ts_peru_thou_recent_2015 <- window(ts_peru_thou, start = c(2015, 1))
+
+# STEP 2: Create dummy = 1 from 2022 Jan
+intervention_dummy_2015 <- ifelse(time(ts_peru_thou_recent_2015) >= 2022, 1, 0)
+
+# STEP 3: Train/test split
+n_for <- 12
+ts_train_2015 <- window(ts_peru_thou_recent_2015, end = time(ts_peru_thou_recent_2015)[length(ts_peru_thou_recent_2015) - n_for])
+ts_test_2015  <- window(ts_peru_thou_recent_2015, start = time(ts_peru_thou_recent_2015)[length(ts_peru_thou_recent_2015) - n_for + 1])
+
+# STEP 4: Dummy for train/test
+dummy_train_2015 <- window(intervention_dummy_2015, end = time(ts_train_2015)[length(ts_train_2015)])
+dummy_test_2015  <- window(intervention_dummy_2015, start = time(ts_test_2015)[1])
+
+# STEP 5: Fourier terms
+fourier_train_2015 <- fourier(ts_train_2015, K = 3)
+fourier_test_2015  <- fourier(ts_train_2015, K = 3, h = n_for)
+
+# STEP 6: xreg alignment
+xreg_train_2015 <- cbind(dummy = dummy_train_2015, fourier_train_2015)
+xreg_test_2015  <- cbind(dummy = dummy_test_2015, fourier_test_2015)
+colnames(xreg_test_2015) <- colnames(xreg_train_2015)
+
+# === MODEL FITTING
+ETS_2015   <- stlf(ts_train_2015, h = n_for)
+ARIMA_2015 <- forecast(auto.arima(ts_train_2015, seasonal = FALSE, lambda = 0, xreg = xreg_train_2015),
+                       xreg = xreg_test_2015, h = n_for)
+TBATS_2015 <- forecast(tbats(ts_train_2015), h = n_for)
+NN_2015    <- forecast(nnetar(ts_train_2015, p = 1, P = 0, xreg = xreg_train_2015),
+                       xreg = xreg_test_2015, h = n_for)
+
+# === Accuracy
+scores_2015 <- as.data.frame(rbind(
+  accuracy(ETS_2015$mean, ts_test_2015),
+  accuracy(ARIMA_2015$mean, ts_test_2015),
+  accuracy(TBATS_2015$mean, ts_test_2015),
+  accuracy(NN_2015$mean, ts_test_2015)
+))
+row.names(scores_2015) <- c("STL+ETS (2015+)", "ARIMA+Fourier+Dummy (2015+)", "TBATS (2015+)", "NN (2015+)")
+
+
+### ==========================
+### 2. 2018+ Data with dummy (from 2022 Jan)
+### ==========================
+
+# STEP 1: Filter data from 2018
+ts_peru_thou_recent_2018 <- window(ts_peru_thou, start = c(2018, 1))
+
+# STEP 2: Create dummy = 1 from 2022 Jan
+intervention_dummy_2018 <- ifelse(time(ts_peru_thou_recent_2018) >= 2022, 1, 0)
+
+# STEP 3: Train/test split
+ts_train_2018 <- window(ts_peru_thou_recent_2018, end = time(ts_peru_thou_recent_2018)[length(ts_peru_thou_recent_2018) - n_for])
+ts_test_2018  <- window(ts_peru_thou_recent_2018, start = time(ts_peru_thou_recent_2018)[length(ts_peru_thou_recent_2018) - n_for + 1])
+
+# STEP 4: Dummy for train/test
+dummy_train_2018 <- window(intervention_dummy_2018, end = time(ts_train_2018)[length(ts_train_2018)])
+dummy_test_2018  <- window(intervention_dummy_2018, start = time(ts_test_2018)[1])
+
+# STEP 5: Fourier terms
+fourier_train_2018 <- fourier(ts_train_2018, K = 3)
+fourier_test_2018  <- fourier(ts_train_2018, K = 3, h = n_for)
+
+# STEP 6: xreg alignment
+xreg_train_2018 <- cbind(dummy = dummy_train_2018, fourier_train_2018)
+xreg_test_2018  <- cbind(dummy = dummy_test_2018, fourier_test_2018)
+colnames(xreg_test_2018) <- colnames(xreg_train_2018)
+
+# === MODEL FITTING
+ETS_2018   <- stlf(ts_train_2018, h = n_for)
+ARIMA_2018 <- forecast(auto.arima(ts_train_2018, seasonal = FALSE, lambda = 0, xreg = xreg_train_2018),
+                       xreg = xreg_test_2018, h = n_for)
+TBATS_2018 <- forecast(tbats(ts_train_2018), h = n_for)
+NN_2018    <- forecast(nnetar(ts_train_2018, p = 1, P = 0, xreg = xreg_train_2018),
+                       xreg = xreg_test_2018, h = n_for)
+
+# === Accuracy
+scores_2018 <- as.data.frame(rbind(
+  accuracy(ETS_2018$mean, ts_test_2018),
+  accuracy(ARIMA_2018$mean, ts_test_2018),
+  accuracy(TBATS_2018$mean, ts_test_2018),
+  accuracy(NN_2018$mean, ts_test_2018)
+))
+row.names(scores_2018) <- c("STL+ETS (2018+)", "ARIMA+Fourier+Dummy (2018+)", "TBATS (2018+)", "NN (2018+)")
+
+### ==========================
+### Compare 2015+ vs 2018+ Results
+### ==========================
+print("📊 Forecast Accuracy (RMSE, MAE, etc.) Comparison:")
+print(round(rbind(scores_2015, scores_2018), 2))
+
+# Best model overall
+combined_scores <- rbind(scores_2015, scores_2018)
+best_model_index <- which.min(combined_scores$RMSE)
+cat("✅ Best model overall by RMSE is:", row.names(combined_scores[best_model_index,]), "\n")
+
+```
+
+```{r}
+
+# STEP 1: 공통 시계열 축 생성 (예측 기간: 마지막 12개월)
+forecast_start <- time(ts_test_2015)[1]
+forecast_time <- seq(forecast_start, by = 1/12, length.out = n_for)
+
+# STEP 2: 예측 결과 데이터프레임 생성
+df_compare_all <- data.frame(
+  Date         = forecast_time,
+  Actual       = as.numeric(ts_test_2015),
+  ETS_2015     = as.numeric(ETS_2015$mean),
+  ARIMA_2015   = as.numeric(ARIMA_2015$mean),
+  TBATS_2015   = as.numeric(TBATS_2015$mean),
+  NN_2015      = as.numeric(NN_2015$mean),
+  ETS_2018     = as.numeric(ETS_2018$mean),
+  ARIMA_2018   = as.numeric(ARIMA_2018$mean),
+  TBATS_2018   = as.numeric(TBATS_2018$mean),
+  NN_2018      = as.numeric(NN_2018$mean)
+)
+
+# STEP 3: long format 변환
+df_long_all <- df_compare_all %>%
+  pivot_longer(cols = -Date, names_to = "Model", values_to = "Value")
+
+# STEP 4: 색상 및 선형 타입 정의
+color_palette <- c(
+  "Actual" = "black",
+  "ETS_2015" = "#1f77b4",   # 파랑
+  "ARIMA_2015" = "#2ca02c", # 초록
+  "TBATS_2015" = "#9467bd", # 보라
+  "NN_2015" = "#ff7f0e",    # 주황
+  "ETS_2018" = "#1f77b4",
+  "ARIMA_2018" = "#2ca02c",
+  "TBATS_2018" = "#9467bd",
+  "NN_2018" = "#ff7f0e"
+)
+
+linetype_palette <- c(
+  "Actual" = "solid",
+  "ETS_2015" = "dashed",
+  "ARIMA_2015" = "dashed",
+  "TBATS_2015" = "dashed",
+  "NN_2015" = "dashed",
+  "ETS_2018" = "dotted",
+  "ARIMA_2018" = "dotted",
+  "TBATS_2018" = "dotted",
+  "NN_2018" = "dotted"
+)
+
+# STEP 5: Plot
+ggplot(df_long_all, aes(x = Date, y = Value, color = Model, linetype = Model)) +
+  geom_line(size = 1.2) +
+  scale_color_manual(values = color_palette) +
+  scale_linetype_manual(values = linetype_palette) +
+  labs(
+    title = "Forecast Comparison (All Models)",
+    subtitle = "Dashed: Models trained on 2015+ data | Dotted: Models trained on 2018+ data",
+    x = "Time", y = "Unemployed (Thousands)",
+    color = "Series", linetype = "Series"
+  ) +
+  theme_minimal()
+
+```
+
+```{r}
+
+# STEP 1: 공통 예측 시계열 생성
+forecast_start <- time(ts_test_2015)[1]
+forecast_time <- seq(forecast_start, by = 1/12, length.out = n_for)
+
+# STEP 2: 데이터프레임 생성 (실제값 + ETS/TBATS)
+df_compare_subset <- data.frame(
+  Date         = forecast_time,
+  Actual       = as.numeric(ts_test_2015),
+  ETS_2015     = as.numeric(ETS_2015$mean),
+  TBATS_2015   = as.numeric(TBATS_2015$mean),
+  ETS_2018     = as.numeric(ETS_2018$mean),
+  TBATS_2018   = as.numeric(TBATS_2018$mean)
+)
+
+# STEP 3: long format 변환
+df_long_subset <- df_compare_subset %>%
+  pivot_longer(cols = -Date, names_to = "Model", values_to = "Value")
+
+# STEP 4: 색상 및 선형 타입 정의
+color_palette_subset <- c(
+  "Actual" = "black",
+  "ETS_2015" = "#1f77b4",   # 파랑
+  "ETS_2018" = "#1f77b4",
+  "TBATS_2015" = "#9467bd", # 보라
+  "TBATS_2018" = "#9467bd"
+)
+
+linetype_palette_subset <- c(
+  "Actual" = "solid",
+  "ETS_2015" = "dashed",
+  "ETS_2018" = "dotted",
+  "TBATS_2015" = "dashed",
+  "TBATS_2018" = "dotted"
+)
+
+# STEP 5: 시각화
+ggplot(df_long_subset, aes(x = Date, y = Value, color = Model, linetype = Model)) +
+  geom_line(size = 1.2) +
+  scale_color_manual(values = color_palette_subset) +
+  scale_linetype_manual(values = linetype_palette_subset) +
+  labs(
+    title = "Forecast Comparison: ETS & TBATS Models Only",
+    subtitle = "Dashed: Models trained on 2015+ data | Dotted: Models trained on 2018+ data",
+    x = "Time", y = "Unemployed (Thousands)",
+    color = "Series", linetype = "Series"
+  ) +
+  theme_minimal()
+
+```
+
+
+# Additional TBATS Models
+```{r}
+# ==============================
+# 1. Model starting from January 2015
+# ==============================
+
+# STEP 1: Filter data from 2015 until September 2023
+ts_train_2015 <- window(ts_peru_thou, start = c(2015, 1), end = c(2023, 9))
+ts_test_2015  <- window(ts_peru_thou, start = c(2023, 10), end = c(2024, 9))  # Forecast from Oct 2023 to Sep 2024
+
+# STEP 2: Create dummy variable (1 from 2022 onwards)
+intervention_dummy_2015 <- ifelse(time(ts_train_2015) >= 2022, 1, 0)
+intervention_dummy_test_2015 <- ifelse(time(ts_test_2015) >= 2022, 1, 0)
+
+# STEP 3: Add dummy to xreg (Fourier terms can be added similarly if needed)
+xreg_train_2015 <- cbind(dummy = intervention_dummy_2015)
+xreg_test_2015  <- cbind(dummy = intervention_dummy_test_2015)
+
+# STEP 4: Fit TBATS model for 2015 with dummy variable
+TBATS_2015 <- tbats(ts_train_2015)
+TBATS_forecast_2015 <- forecast(TBATS_2015, h = n_for, xreg = xreg_test_2015)
+
+# STEP 5: Accuracy evaluation for TBATS 2015
+accuracy_2015 <- accuracy(TBATS_forecast_2015$mean, ts_test_2015)
+
+# ==============================
+# 2. Model starting from January 2016
+# ==============================
+
+# STEP 1: Filter data from 2016 until September 2023
+ts_train_2016 <- window(ts_peru_thou, start = c(2016, 1), end = c(2023, 9))
+ts_test_2016  <- window(ts_peru_thou, start = c(2023, 10), end = c(2024, 9))  # Forecast from Oct 2023 to Sep 2024
+
+# STEP 2: Create dummy variable (1 from 2022 onwards)
+intervention_dummy_2016 <- ifelse(time(ts_train_2016) >= 2022, 1, 0)
+intervention_dummy_test_2016 <- ifelse(time(ts_test_2016) >= 2022, 1, 0)
+
+# STEP 3: Add dummy to xreg
+xreg_train_2016 <- cbind(dummy = intervention_dummy_2016)
+xreg_test_2016  <- cbind(dummy = intervention_dummy_test_2016)
+
+# STEP 4: Fit TBATS model for 2016 with dummy variable
+TBATS_2016 <- tbats(ts_train_2016)
+TBATS_forecast_2016 <- forecast(TBATS_2016, h = n_for, xreg = xreg_test_2016)
+
+# STEP 5: Accuracy evaluation for TBATS 2016
+accuracy_2016 <- accuracy(TBATS_forecast_2016$mean, ts_test_2016)
+
+# ==============================
+# 3. Model starting from January 2017
+# ==============================
+
+# STEP 1: Filter data from 2017 until September 2023
+ts_train_2017 <- window(ts_peru_thou, start = c(2017, 1), end = c(2023, 9))
+ts_test_2017  <- window(ts_peru_thou, start = c(2023, 10), end = c(2024, 9))  # Forecast from Oct 2023 to Sep 2024
+
+# STEP 2: Create dummy variable (1 from 2022 onwards)
+intervention_dummy_2017 <- ifelse(time(ts_train_2017) >= 2022, 1, 0)
+intervention_dummy_test_2017 <- ifelse(time(ts_test_2017) >= 2022, 1, 0)
+
+# STEP 3: Add dummy to xreg
+xreg_train_2017 <- cbind(dummy = intervention_dummy_2017)
+xreg_test_2017  <- cbind(dummy = intervention_dummy_test_2017)
+
+# STEP 4: Fit TBATS model for 2017 with dummy variable
+TBATS_2017 <- tbats(ts_train_2017)
+TBATS_forecast_2017 <- forecast(TBATS_2017, h = n_for, xreg = xreg_test_2017)
+
+# STEP 5: Accuracy evaluation for TBATS 2017
+accuracy_2017 <- accuracy(TBATS_forecast_2017$mean, ts_test_2017)
+
+# ==============================
+# 4. Model starting from January 2018
+# ==============================
+
+# STEP 1: Filter data from 2018 until September 2023
+ts_train_2018 <- window(ts_peru_thou, start = c(2018, 1), end = c(2023, 9))
+ts_test_2018  <- window(ts_peru_thou, start = c(2023, 10), end = c(2024, 9))  # Forecast from Oct 2023 to Sep 2024
+
+# STEP 2: Create dummy variable (1 from 2022 onwards)
+intervention_dummy_2018 <- ifelse(time(ts_train_2018) >= 2022, 1, 0)
+intervention_dummy_test_2018 <- ifelse(time(ts_test_2018) >= 2022, 1, 0)
+
+# STEP 3: Add dummy to xreg
+xreg_train_2018 <- cbind(dummy = intervention_dummy_2018)
+xreg_test_2018  <- cbind(dummy = intervention_dummy_test_2018)
+
+# STEP 4: Fit TBATS model for 2018 with dummy variable
+TBATS_2018 <- tbats(ts_train_2018)
+TBATS_forecast_2018 <- forecast(TBATS_2018, h = n_for, xreg = xreg_test_2018)
+
+# STEP 5: Accuracy evaluation for TBATS 2018
+accuracy_2018 <- accuracy(TBATS_forecast_2018$mean, ts_test_2018)
+
+# ==============================
+# 5. Combine accuracy results
+# ==============================
+
+print(accuracy_2015)
+print(accuracy_2016)
+print(accuracy_2017)
+print(accuracy_2018)
+
+checkresiduals(accuracy_2015)
+checkresiduals(accuracy_2016)
+checkresiduals(accuracy_2017)
+checkresiduals(accuracy_2018)
+
+# ==============================
+# 6. Plot forecast results for all models
+# ==============================
+
+# Combine actual values and forecasts for plotting
+df_compare_all <- data.frame(
+  Date         = seq(time(ts_test_2015)[1], by = 1/12, length.out = n_for),
+  Actual       = as.numeric(ts_test_2015),
+  TBATS_2015   = as.numeric(TBATS_forecast_2015$mean),
+  TBATS_2016   = as.numeric(TBATS_forecast_2016$mean),
+  TBATS_2017   = as.numeric(TBATS_forecast_2017$mean),
+  TBATS_2018   = as.numeric(TBATS_forecast_2018$mean)
+)
+
+# Convert the data to long format for ggplot
+df_long_all <- df_compare_all %>%
+  pivot_longer(cols = -Date, names_to = "Model", values_to = "Value")
+
+# Define color and linetype palette
+color_palette_all <- c(
+  "Actual" = "black",
+  "TBATS_2015" = "red",
+  "TBATS_2016" = "orange",
+  "TBATS_2017" = "purple",
+  "TBATS_2018" = "green"
+)
+
+linetype_palette_all <- c(
+  "Actual" = "solid",
+  "TBATS_2015" = "dashed",
+  "TBATS_2016" = "dashed",
+  "TBATS_2017" = "dashed",
+  "TBATS_2018" = "dashed"
+)
+
+# Ensure 'Date' column is of Date class
+df_long_all$Date <- as.Date(df_long_all$Date)
+
+# Plot all forecast models
+ggplot(df_long_all, aes(x = Date, y = Value, color = Model, linetype = Model)) +
+  geom_line(size = 1.2) +
+  scale_color_manual(values = color_palette_all) +
+  scale_linetype_manual(values = linetype_palette_all) +
+  scale_x_date(date_labels = "%b %Y", date_breaks = "3 months") +  # Format x-axis as Month/Year
+  labs(
+    title = "TBATS Forecast Comparison: Different Start Years",
+    subtitle = "Dashed lines: Models trained on 2015, 2016, 2017, 2018 data with Intervention Dummy",
+    x = "Time", y = "Unemployed (Thousands)",
+    color = "Model", linetype = "Model"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Rotate x-axis text for better readability
+
+```
+
+# TABTS 2022+
+```{r}
+# STEP 1: Forecast settings
+n_for <- 12  # Number of months to forecast
+
+# ==============================
+# 1. TBATS Model with Training from Jan 2022 to Sep 2023
+# ==============================
+
+# STEP 2: Filter data from January 2022 to September 2023 for training
+ts_train_2022 <- window(ts_peru_thou, start = c(2022, 1), end = c(2023, 9))
+ts_test_2022  <- window(ts_peru_thou, start = c(2023, 10), end = c(2024, 9))  # Forecast from Oct 2023 to Sep 2024
+
+# STEP 3: Fit TBATS model for 2022 data
+TBATS_2022 <- tbats(ts_train_2022)
+TBATS_forecast_2022 <- forecast(TBATS_2022, h = n_for)
+
+# STEP 4: Plot the results
+start_forecast <- time(ts_test_2022)[1]  # Start time for forecast
+
+# Create a time series object for the forecast (aligned to the test start)
+TBATS_ts_2022 <- ts(TBATS_forecast_2022$mean, start = start_forecast, frequency = 12)
+
+# Extract last 24 months of actual data for visualization
+ts_last_24 <- window(ts_peru_thou, start = c(time(ts_peru_thou)[length(ts_peru_thou) - 23]))
+
+# Plot actual values and forecast
+autoplot(ts_last_24, series = "Actual", size = 1.2) +
+  autolayer(TBATS_ts_2022, series = "TBATS Forecast", size = 1.2) +
+  ggtitle("TBATS Forecast: Oct 2023 - Sep 2024 (Based on Data from Jan 2022 - Sep 2023)") +
+  ylab("Unemployed (Thousands)") +
+  xlab("Time") +
+  guides(colour = guide_legend(title = "Series")) +
+  theme_minimal()
+
+# STEP 5: Accuracy evaluation for TBATS 2022 model
+accuracy_2022 <- accuracy(TBATS_forecast_2022$mean, ts_test_2022)
+print(accuracy_2022)
+
+
+```
+
+
+# forecasting the future unemployment.
+```{r}
+
+
+# STEP 1: Forecast settings
+n_for <- 52  # Forecast the next 4 years (12 months * 4 = 48 months, plus 4 months to complete the year)
+
+# STEP 2: Filter data from January 2015 to September 2024 for training
+ts_train_2015_2024 <- window(ts_peru_thou, start = c(2015, 1), end = c(2024, 9))
+
+# STEP 3: Fit TBATS model
+TBATS_fit <- tbats(ts_train_2015_2024)
+TBATS_forecast <- forecast(TBATS_fit, h = n_for)
+
+# STEP 4: Prepare the forecasted time series for plotting
+start_forecast <- time(ts_train_2015_2024)[length(ts_train_2015_2024)] + 1/12  # Start time for forecast
+
+# Create time series object for TBATS forecast (aligned to the test start)
+TBATS_ts <- ts(TBATS_forecast$mean, start = start_forecast, frequency = 12)
+
+# STEP 5: Plot the results
+ts_last_24 <- window(ts_peru_thou, start = c(time(ts_peru_thou)[length(ts_peru_thou) - 23]))
+
+autoplot(ts_last_24, series = "Actual", size = 1.2) +
+  autolayer(TBATS_ts, series = "TBATS Forecast", size = 1.2) +
+  ggtitle("TBATS Forecast: Oct 2024 - Dec 2028 (Based on Data from Jan 2015 - Sep 2024)") +
+  ylab("Unemployed (Thousands)") +
+  xlab("Time") +
+  guides(colour = guide_legend(title = "Series")) +
+  theme_minimal()
+
+# STEP 6: Save the forecasted results to Excel
+forecast_data <- data.frame(
+  Date = time(TBATS_ts),
+  Forecast = as.numeric(TBATS_ts)
+)
+
+# Save to Excel
+write.xlsx(forecast_data, file = "TBATS_Forecast_2024_2028.xlsx")
+
+# STEP 7: Print the forecasted results
+print(forecast_data)
+
+# Plot actual data from 2015 to Sep 2024 and TBATS forecast from Oct 2024 to Dec 2028
+autoplot(ts_peru_thou, series = "Actual Data", size = 1.2) +
+  autolayer(TBATS_ts, series = "TBATS Forecast", size = 1.2) +
+  ggtitle("Actual Data and TBATS Forecast: 2015 - 2028") +
+  ylab("Unemployed (Thousands)") +
+  xlab("Time") +
+  guides(colour = guide_legend(title = "Series")) +
+  theme_minimal()
+
+
+```
+
+
