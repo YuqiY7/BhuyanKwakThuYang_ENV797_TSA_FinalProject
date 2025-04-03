@@ -1,0 +1,364 @@
+---
+title: "Data Wrangling"
+author: "Aye Nyein Thu"
+date: "2025-03-24"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r load packages, warning=FALSE, message=FALSE}
+# Load required packages
+library(readxl)
+library(openxlsx)
+library(writexl)
+library(dplyr)
+library(lubridate)
+library(ggplot2)
+library(cowplot)
+library(forecast)  
+library(Kendall)
+library(tseries)
+library(outliers)
+library(tidyverse)
+library(smooth)
+library(trend)
+library(kableExtra)
+
+# Check working directory
+getwd()
+```
+
+```{r importing data and initial data wrangling, results='hide', warning=FALSE, message=FALSE}
+## Raw Data Set: Unemployment Rate by Age (Thousands)
+# Import data set
+UEAge.Thou <- read_excel(
+  path="./Data/Raw/UE_Age(Thousands).xlsx", sheet = "Sheet1", col_names = TRUE)
+
+# Format data set
+UEAge.Thou_Processed <- UEAge.Thou %>%
+  mutate(
+    Month = ym(sub("M", "-", Month)), 
+    Age15to24.Thou = as.numeric(`15-24`), 
+    Age25above.Thou = as.numeric(`25+`),   
+    AgeTotal.Thou = as.numeric(`15+`)) %>% 
+  rename(Country="Reference area") %>% 
+  select(Country,Month,Age15to24.Thou, Age25above.Thou, AgeTotal.Thou) %>% 
+  arrange(Country, Month)
+
+## Raw Data Set: Unemployment Rate by Age (%)
+# Import data set
+UEAge.Per <- read_excel(
+  path="./Data/Raw/UE_Age(%).xlsx", sheet = "Sheet1", col_names = TRUE)
+
+# Format data set
+UEAge.Per_Processed <- UEAge.Per %>%
+  mutate(
+    Month = ym(sub("M", "-", Month)), 
+    Age15to24.Per = as.numeric(`15-24`), 
+    Age25above.Per = as.numeric(`25+`),   
+    AgeTotal.Per = as.numeric(`15+`)) %>% 
+  rename(Country="Reference area") %>% 
+  select(Country,Month,Age15to24.Per, Age25above.Per, AgeTotal.Per) %>% 
+  arrange(Country, Month)
+
+## Raw Data Set: Unemployment Rate by Gender (Thousands)
+# Import data set
+UEGender.Thou <- read_excel(
+  path="./Data/Raw/UE_Gender(Thousands).xlsx", sheet = "Sheet1", col_names = TRUE)
+
+# Format data set
+UEGender.Thou_Processed <- UEGender.Thou %>%
+  mutate(
+    Month = ym(sub("M", "-", Month)), 
+    Female.Thou = as.numeric(Female), 
+    Male.Thou = as.numeric(Male),   
+    Total.Thou = as.numeric(Total)) %>% 
+  rename(Country="Reference area") %>% 
+  select(Country,Month,Female.Thou, Male.Thou, Total.Thou) %>% 
+  arrange(Country, Month)
+
+## Raw Data Set: Unemployment Rate by Gender (%)
+# Import data set
+UEGender.Per <- read_excel(
+  path="./Data/Raw/UE_Gender(%).xlsx", sheet = "Sheet1", col_names = TRUE)
+
+# Format data set
+UEGender.Per_Processed <- UEGender.Per %>%
+  mutate(
+    Month = ym(sub("M", "-", Month)), 
+    Female.Per = as.numeric(Female), 
+    Male.Per = as.numeric(Male),   
+    Total.Per = as.numeric(Total)) %>% 
+  rename(Country="Reference area") %>% 
+  select(Country,Month,Female.Per, Male.Per, Total.Per) %>% 
+  arrange(Country, Month)
+```
+
+```{r family data wrangling and formatting, warning=FALSE, message=FALSE}
+# Combine all processed data sets by country
+UE_Countries <- UEAge.Thou_Processed %>% 
+  left_join(UEAge.Per_Processed, by=c("Country", "Month")) %>% 
+  left_join(UEGender.Thou_Processed, by=c("Country", "Month")) %>% 
+  left_join(UEGender.Per_Processed, by=c("Country", "Month")) 
+  
+# Print summary and check missing values
+summary(UE_Countries)
+sum(is.na(UE_Countries))
+print(length(unique(UE_Countries$Country)))
+
+# Combined as global unemployment rate
+UE_Global <- UE_Countries %>%
+  group_by(Month) %>%
+  summarise(
+    Age15to24.Thou = mean(`Age15to24.Thou`, na.rm = TRUE),
+    Age25above.Thou = mean(`Age25above.Thou`, na.rm = TRUE), 
+    AgeTotal.Thou = mean(`AgeTotal.Thou`, na.rm = TRUE), 
+    Age15to24.Per = mean(`Age15to24.Thou`, na.rm = TRUE),
+    Age25above.Per = mean(`Age25above.Per`, na.rm = TRUE), 
+    AgeTotal.Per = mean(`AgeTotal.Per`, na.rm = TRUE), 
+    Female.Thou = mean(`Female.Thou`, na.rm = TRUE),
+    Male.Thou = mean(`Male.Thou`, na.rm = TRUE),
+    Total.Thou = mean(`Total.Thou`, na.rm = TRUE),
+    Female.Per = mean(`Female.Per`, na.rm = TRUE),
+    Male.Per = mean(`Male.Per`, na.rm = TRUE),
+    Total.Per = mean(`Total.Per`, na.rm = TRUE))
+
+# Print summary and check missing values
+summary(UE_Global)
+sum(is.na(UE_Global))
+```
+
+```{r save processed files in the processed folder}
+# Save all the modified files in the processed folder 
+write.xlsx(UEAge.Thou_Processed, "Data/Processed/UEAge.Thou_Processed.xlsx")
+write.xlsx(UEAge.Per_Processed, "Data/Processed/UEAge.Per_Processed.xlsx")
+write.xlsx(UEGender.Thou_Processed, "Data/Processed/UEGender.Thou_Processed.xlsx")
+write.xlsx(UEGender.Per_Processed, "Data/Processed/UEGender.Per_Processed.xlsx")
+write.xlsx(UE_Countries, "Data/Processed/UE_Countries.xlsx")
+write.xlsx(UE_Global, "Data/Processed/UE_Global.xlsx")
+```
+
+```{r initial plot, warning=FALSE, message=FALSE}
+# Initial time series plots for each variable
+variable_names <- colnames(UE_Global)[colnames(UE_Global) != "Month"]
+
+for (var in variable_names) {
+  print(ggplot(UE_Global, aes(x = Month, y = .data[[var]])) +
+    geom_line(color = "blue") +
+    labs(title = paste("Time Series of", var),
+         x = "Month", y = var)) }
+
+# Transform into time series object
+ts_UE_Global <- ts(UE_Global, start=c(1948,1), frequency = 12)
+
+# ACF and PACF plots for each variable
+for (var in variable_names) {
+  par(mfrow = c(1, 2)) 
+  Acf(UE_Global[[var]], lag.max = 40, main = paste("ACF of", var))
+  Pacf(UE_Global[[var]], lag.max = 40, main = paste("PACF of", var))
+}
+
+# Decomposition plots for each variable 
+for (var in variable_names) {
+  decomposed_ts <- decompose(ts_UE_Global[, var]) 
+  plot(decomposed_ts)  
+  title(main = paste("For", var)) 
+}
+
+```
+
+```{r testing weighted average vs simple average}
+# Using the weighted average to the unemployment rate
+UE_Global_Weighted <- UE_Countries %>%
+  filter(apply(UE_Countries[, 3:14], 1, function(x) all(!is.na(x)))) %>%  
+  group_by(Month) %>%
+  summarise(
+    Age15to24.Per = sum(Age15to24.Thou) / sum(Age15to24.Thou / Age15to24.Per), 
+    Age25above.Per = sum(Age25above.Thou) / sum(Age25above.Thou / Age25above.Per),
+    Female.Per = sum(Female.Thou) / sum(Female.Thou / Female.Per),
+    Male.Per = sum(Male.Thou) / sum(Male.Thou / Male.Per),
+    Total.Per = sum(Total.Thou) / sum(Total.Thou / Total.Per),
+    
+    Age15to24.Thou = mean(Age15to24.Thou, na.rm = TRUE),
+    Age25above.Thou = mean(Age25above.Thou, na.rm = TRUE),
+    Female.Thou = mean(Female.Thou, na.rm = TRUE),
+    Male.Thou = mean(Male.Thou, na.rm = TRUE),
+    Total.Thou = mean(Total.Thou, na.rm = TRUE)
+  )
+
+# Plot 
+UE_Global_combined <- bind_rows(
+  UE_Global %>% mutate(Source = "UE_Global"),
+  UE_Global_Weighted %>% mutate(Source = "UE_Global_Weighted")
+)
+
+ggplot(UE_Global_combined, aes(x = Month, y = Total.Per, color = Source)) +
+  geom_line() +               
+  labs(title = "Global Unemployment Rate: Weighted vs Simple Average",
+       x = "Month", y = "Global Unemployment Rate (%)", color = "Source") +
+  theme_minimal() 
+
+```
+
+```{r finding the outliers}
+outlier(UE_Global_Weighted) 
+grubbs.test(UE_Global_Weighted$Age15to24.Thou) 
+grubbs.test(UE_Global_Weighted$Age25above.Thou) # This is an outlier. 
+grubbs.test(UE_Global_Weighted$Age15to24.Per) 
+grubbs.test(UE_Global_Weighted$Age25above.Per)
+grubbs.test(UE_Global_Weighted$Female.Thou)
+grubbs.test(UE_Global_Weighted$Male.Thou)
+grubbs.test(UE_Global_Weighted$Female.Per)
+grubbs.test(UE_Global_Weighted$Male.Per)
+grubbs.test(UE_Global_Weighted$Total.Thou)
+grubbs.test(UE_Global_Weighted$Total.Per)
+```
+
+```{r time series}
+# Transform into time series
+ts_UE_Global <- ts(UE_Global_Weighted[,2:11],
+                            start=c(year(UE_Global_Weighted$Month[1]), 
+                                    month(UE_Global_Weighted$Month[1])),
+                            frequency = 12)
+
+# Set the period
+nobs = nrow(UE_Global)
+n_for = 12
+
+# Create a subset for training purpose 
+ts_UE_Global_train <- ts(UE_Global_Weighted[1:(nobs-n_for),2:11],
+                                  start=c(year(UE_Global_Weighted$Month[1]),
+                                          month(UE_Global_Weighted$Month[1])),
+                                  frequency = 12)
+
+
+# Create a subset for testing purpose
+start_row = nobs - n_for + 1
+ts_UE_Global_test <- ts(UE_Global_Weighted[(nobs-n_for+1):nobs,2:11],
+                                  start=c(year(UE_Global_Weighted$Month[start_row]),
+                                          month(UE_Global_Weighted$Month[start_row])),
+                                  frequency = 12)
+
+autoplot(ts_UE_Global_train)
+autoplot(ts_UE_Global_test)
+```
+
+```{r total.per decompose}
+# Global Unemployment Rate in Percentage  
+# Decompose 
+decompose_Total.Per_train <- decompose(ts_UE_Global_train[,"Total.Per"], "additive")
+plot(decompose_Total.Per_train)
+
+# Deseason 
+deseasonal_Total.Per_train <- seasadj(decompose_Total.Per_train)  
+
+# Run the tests on deseasoned series
+print(adf.test(deseasonal_Total.Per_train, alternative = "stationary")) 
+summary(MannKendall(deseasonal_Total.Per_train))
+
+# Run the tests on original series 
+print(adf.test(ts_UE_Global_train[,"Total.Per"], alternative = "stationary")) 
+summary(SeasonalMannKendall(ts_UE_Global_train[,"Total.Per"]))
+summary(smk.test(ts_UE_Global_train[,"Total.Per"]))
+
+# Check for any differencing needed 
+print(ndiffs(ts_UE_Global_train[,"Total.Per"]))
+print(ndiffs(deseasonal_Total.Per_train))
+
+```
+
+```{r total.per models}
+# Global Unemployment Rate in Percentage 
+# Model 1: Arithmetic mean on original data
+MEAN_seas_Total.Per <- meanf(y = ts_UE_Global_train[,"Total.Per"], h = 12)
+autoplot(MEAN_seas_Total.Per) + ylab("Global Unemployment Rate (%)")
+checkresiduals(MEAN_seas_Total.Per)
+
+# Model 2: Arithmetic mean on deseas data
+MEAN_deseas_Total.Per <- meanf(deseasonal_Total.Per_train, h=12)
+autoplot(MEAN_deseas_Total.Per)
+checkresiduals(MEAN_deseas_Total.Per)
+
+# Model 3: Seasonal naive on original data
+SNAIVE_seas_Total.Per <- snaive(ts_UE_Global_train[,"Total.Per"], h=12)
+autoplot(SNAIVE_seas_Total.Per)
+checkresiduals(SNAIVE_seas_Total.Per)
+
+# Model 4: Naive on deseas data
+SNAIVE_deseas_Total.Per <- snaive(deseasonal_Total.Per_train, h=12)
+autoplot(SNAIVE_deseas_Total.Per)
+checkresiduals(SNAIVE_deseas_Total.Per)
+
+# Model 5: Simple moving average on original data
+SMA_seas_Total.Per <- sma( y = ts_UE_Global_train[,"Total.Per"], h = 12, holdout = FALSE, silent = FALSE) 
+summary(SMA_seas_Total.Per)
+checkresiduals(SMA_seas_Total.Per)
+
+# Model 6: Simple moving average on deseasonal data
+SMA_deseas_Total.Per <- smooth::sma(y = deseasonal_Total.Per_train, h = 12, holdout = FALSE, silent = FALSE) 
+summary(SMA_deseas_Total.Per)
+checkresiduals(SMA_deseas_Total.Per)
+
+# Model 7:  Simple exponential smoothing on original data
+SES_seas_Total.Per <- ses(y = ts_UE_Global_train[,"Total.Per"], h = 12, holdout = FALSE, silent = FALSE)
+summary(SES_seas_Total.Per)
+autoplot(SES_seas_Total.Per)
+checkresiduals(SES_seas_Total.Per)
+
+# Model 8:  Simple exponential smoothing on deseasonal data
+SES_deseas_Total.per = ses( y = deseasonal_Total.Per_train, h = 12, holdout = FALSE, silent = FALSE)  
+summary(SES_deseas_Total.per)
+autoplot(SES_deseas_Total.per)
+checkresiduals(SES_seas_Total.Per)
+
+# Model 9:  SARIMA on original data
+SARIMA_Total.per <- auto.arima(ts_UE_Global_train[,"Total.Per"])
+print(SARIMA_Total.per)
+
+SARIMA_forecast_Total.per <- forecast(object = SARIMA_Total.per, h = 12)
+autoplot(SARIMA_forecast_Total.per)
+checkresiduals(SARIMA_forecast_Total.per)
+
+# Model 10:  ARIMA on deseasonal data
+ARIMA_Total.per <- auto.arima(deseasonal_Total.Per_train, max.D = 0, max.P = 0, max.Q = 0)
+print(ARIMA_Total.per)
+
+ARIMA_forecast_Total.per <- forecast(object = ARIMA_Total.per, h = 12)
+autoplot(ARIMA_forecast_Total.per)
+checkresiduals(ARIMA_forecast_Total.per)
+
+# Note: So far, the SARIMA is the best model. Ljung-Box test shows that the model does not have any evidence of temporary correlation. 
+
+# SARIMA Model 
+autoplot(ts_UE_Global[,"Total.Per"]) +
+  autolayer(SARIMA_forecast_Total.per, series="SARIMA",PI=FALSE) +
+  ylab("Global Employment Rate (%)")
+
+## Other Advanced Models
+# Model 11:  ARIMA + FOURIER 
+ARIMA_Four_Total.per <- auto.arima(ts_UE_Global_train[,"Total.Per"], 
+                             seasonal=FALSE, 
+                             lambda=0,
+                             xreg=fourier(ts_UE_Global_train[,"Total.Per"], 
+                                          K=2)
+                             )
+
+#Forecast with ARIMA fit
+#also need to specify h for fourier terms
+ARIMA_Four_for_Total.per <- forecast(ARIMA_Four_Total.per,
+                           xreg=fourier(ts_UE_Global_train[,"Total.Per"],
+                                        K=2,
+                                        h=12),
+                           h=12
+                           ) 
+
+autoplot(ARIMA_Four_for_Total.per)
+checkresiduals(ARIMA_Four_Total.per)
+
+```
+
