@@ -59,7 +59,7 @@ getwd()
 ## Raw Data Set: Unemployment Rate by Age (Thousands)
 # Import data set
 UEAge.Thou <- read_excel(
-  path="./Data/Raw/UE_Age(Thousands).xlsx", sheet = "Sheet1", col_names = TRUE)
+  path="../Data/Raw/UE_Age(Thousands).xlsx", sheet = "Sheet1", col_names = TRUE)
 
 # Format data set
 UEAge.Thou_Processed <- UEAge.Thou %>%
@@ -75,7 +75,7 @@ UEAge.Thou_Processed <- UEAge.Thou %>%
 ## Raw Data Set: Unemployment Rate by Age (%)
 # Import data set
 UEAge.Per <- read_excel(
-  path="./Data/Raw/UE_Age(%).xlsx", sheet = "Sheet1", col_names = TRUE)
+  path="../Data/Raw/UE_Age(%).xlsx", sheet = "Sheet1", col_names = TRUE)
 
 # Format data set
 UEAge.Per_Processed <- UEAge.Per %>%
@@ -91,7 +91,7 @@ UEAge.Per_Processed <- UEAge.Per %>%
 ## Raw Data Set: Unemployment Rate by Gender (Thousands)
 # Import data set
 UEGender.Thou <- read_excel(
-  path="./Data/Raw/UE_Gender(Thousands).xlsx", sheet = "Sheet1", col_names = TRUE)
+  path="../Data/Raw/UE_Gender(Thousands).xlsx", sheet = "Sheet1", col_names = TRUE)
 
 # Format data set
 UEGender.Thou_Processed <- UEGender.Thou %>%
@@ -107,7 +107,7 @@ UEGender.Thou_Processed <- UEGender.Thou %>%
 ## Raw Data Set: Unemployment Rate by Gender (%)
 # Import data set
 UEGender.Per <- read_excel(
-  path="./Data/Raw/UE_Gender(%).xlsx", sheet = "Sheet1", col_names = TRUE)
+  path="../Data/Raw/UE_Gender(%).xlsx", sheet = "Sheet1", col_names = TRUE)
 
 # Format data set
 UEGender.Per_Processed <- UEGender.Per %>%
@@ -361,7 +361,7 @@ grid.arrange(sPE1, sUS1, ncol = 2)
 
 ```{r}
 peru_unemployment <- read_excel(
-  path="./Data/Raw/Final Project_data_20250403_R.xlsx", sheet = "Peru_unemployment", col_names = TRUE)
+  path="../Data/Raw/Final Project_data_20250403_R.xlsx", sheet = "Peru_unemployment", col_names = TRUE)
 
 # Check for missing values
 summary(peru_unemployment)
@@ -495,7 +495,7 @@ grubbs.test(ts_peru_employment_thou)
 
 ```{r}
 us_unemployment <- read_excel(
-  path="./Data/Raw/Final Project_data_20250403_R.xlsx", sheet = "US_unemployment", col_names = TRUE)
+  path="../Data/Raw/Final Project_data_20250403_R.xlsx", sheet = "US_unemployment", col_names = TRUE)
 
 # Check for missing values
 summary(us_unemployment)
@@ -609,12 +609,12 @@ grubbs.test(ts_us_employment_thou)
 # Comparing Peru and US(Population and GDP growth)
 ```{r}
 gdp_growth <- read_excel(
-  path="./Data/Raw/Final Project_data_20250403_R.xlsx", sheet = "US_GDP", col_names = TRUE)
+  path="../Data/Raw/Final Project_data_20250403_R.xlsx", sheet = "US_GDP", col_names = TRUE)
 gdp_growth <- gdp_growth[244:nrow(gdp_growth), ]
 
 
 pop_growth <- read_excel(
-  path="./Data/Raw/Final Project_data_20250403_R.xlsx", sheet = "US_Population", col_names = TRUE)
+  path="../Data/Raw/Final Project_data_20250403_R.xlsx", sheet = "US_Population", col_names = TRUE)
 pop_growth <- pop_growth[80:nrow(pop_growth), ]
 
 
@@ -715,7 +715,7 @@ summary_table <- Peru %>%
   tab_options(table.font.size = px(14),
     heading.title.font.size = px(18), heading.subtitle.font.size = px(14))
 
-print(summary_table)   # During knitting, this should not be excuted.
+# print(summary_table)   # During knitting, this should not be excuted.
 
 summary_table <- Peru %>%
   select(-Month) %>%
@@ -777,7 +777,7 @@ summary_tableUS <- US %>%
   tab_options(table.font.size = px(14),
     heading.title.font.size = px(18), heading.subtitle.font.size = px(14))
 
-print(summary_tableUS) # During knitting, this should not be excuted.
+# print(summary_tableUS) # During knitting, this should not be excuted.
 
 summary_tableUS_simple <- US %>%
   select(-Month) %>%  
@@ -1105,7 +1105,7 @@ forecast_df <- tibble(
 )
 
 # --- 4. Export to Excel ---
-write.xlsx(forecast_df, "./Forecast_Average_Peru.xlsx")
+write.xlsx(forecast_df, "../Forecast_Average_Peru.xlsx")
 
 # --- 5. Extract actuals from 2020 ---
 peru_actual_2020on <- Peru %>%
@@ -1710,7 +1710,7 @@ forecast_df <- tibble(
 )
 
 # --- 2. Export forecast to Excel ---
-write.xlsx(forecast_df, "./Forecast_Average_US.xlsx")
+write.xlsx(forecast_df, "../Forecast_Average_US.xlsx")
 
 # --- 3. Plot actuals (from 2020) and forecast average ---
 # Extract actual values after 2020
