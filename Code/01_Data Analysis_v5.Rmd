@@ -1731,13 +1731,13 @@ plot_df <- bind_rows(
 
 # --- 4. Plot actuals (from 2022) and forecast average ---
 # Extract actual values after 2022
-us_actual_2022on <- US %>%
+us_actual_2018on <- US %>%
   filter(Month >= as.Date("2022-01-01")) %>%
   select(Month, Actual = Total.Per)
 
 
 # Combine with forecast
-plot_df <- bind_rows(
+plot_df2022 <- bind_rows(
   tibble(Month = us_actual_2022on$Month,
          Value = us_actual_2022on$Actual,
          Type = "Actual"),
@@ -1748,16 +1748,16 @@ plot_df <- bind_rows(
 
 
 # Plot
-ggplot(plot_df, aes(x = Month, y = Value, color = Type, group = 1)) +
+ggplot(plot_df2022, aes(x = Month, y = Value, color = Type, group = 1)) +
   geom_line(size = 1) +
   scale_color_manual(values = c("Actual" = "black", "Avg Forecast" = "steelblue")) +
   labs(
-    title = "US Unemployment Rate: Actual (2022~) + Avg Forecast (2025)",
+    title = "US Unemployment Rate: Actual (2018~) + Avg Forecast (2025)",
     y = "Unemployment Rate (%)",
     x = "Month",
     color = "Legend"
   ) +
-  theme_minimal()
+  theme_minimal() + theme(legend.position = "bottom")
 
 
 ```
