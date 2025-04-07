@@ -1334,13 +1334,15 @@ SS_tpscoresUS <- accuracy(SS_for_totalperUS$mean,ts_US_test[,"Total.Per"])
 tpscoresUS <- as.data.frame(rbind(SANIVE_tpscoresUS, SMA_tpscoresUS, 
                                 SES_tpscoresUS, SARIMA_tpscoresUS, ARIMA_tpscoresUS, 
                                 ETS_tpscoresUS, ARIMA_Four_tpscoresUS, TBATS_tpscoresUS, 
-                                NN_tpscoresUS, SSES_tpscoresUS, SS_tpscoresUS)) %>%
-  mutate(Average = rowMeans(., na.rm = TRUE))
+                                NN_tpscoresUS, SSES_tpscoresUS, SS_tpscoresUS)) 
 
 row.names(tpscoresUS) <- c("SNAIVE", "SMA", "SES", "SARIMA", "ARIMA",
                        "ETS", "ARIMA_FOURIER", "TBATS", "NNETAR",
                        "SSES", "BSM")
 
+tpscoresUS <- tpscoresUS %>%
+  mutate(Average = rowMeans(select(., RMSE, MAPE), na.rm = TRUE))
+  
 # Choose model with lowest error
 best_model_index_tpUS <- which.min(tpscoresUS[,"Average"])
 cat("The best model by Average is:", row.names(tpscoresUS[best_model_index_tpUS,]))  
@@ -1389,14 +1391,6 @@ autoplot(ts_US_fulltrain) +
   autolayer(SS_for_totalper_fulltrainUS, series="SS with BSM Model",PI=FALSE)+
   ylab("Forecasted Unemployment Rate (%) in US") 
 
-# Fit STL + ETS Model
-ETS_totalper_fulltrainUS <-  stlf(ts_US_fulltrain,h=n_fullUS)
-
-# Plot model + observed data
-autoplot(ts_US_fulltrain) +
-  autolayer(ETS_totalper_fulltrainUS, series="ETS",PI=FALSE)+
-  ylab("Forecasted Unemployment Rate (%) in US")
-
 # Simple Exponential Smoothing Model
 decom_totalper_fulltrainUS <- decompose(ts_US_fulltrain)
 deseas_totalper_fulltrainUS <- seasadj(decom_totalper_fulltrainUS)
@@ -1409,23 +1403,26 @@ autoplot(ts_US_fulltrain) +
   autolayer(SES_deseas_totalper_fulltrainUS, series="SES Model",PI=FALSE)+
   ylab("Forecasted Unemployment Rate (%) in US") 
 
-# SARIMA Model
-autoplot(ts_US_fulltrain)
-SARIMA_totalper_fulltrainUS <- auto.arima(ts_US_fulltrain)
-summary(SARIMA_totalper_fulltrainUS)
-SARIMA_forecast_totalper_fulltrainUS <- forecast(object = SARIMA_totalper_fulltrainUS, h=n_fullUS)
-summary(SARIMA_forecast_totalper_fulltrainUS)
+# Fit ARIMA 
+decom_totalper_fulltrainUS <- decompose(ts_US_fulltrain)
+deseas_totalper_fulltrainUS <- seasadj(decom_totalper_fulltrainUS)
+
+ARIMA_totalper_fulltrainUS <- auto.arima(deseas_totalper_fulltrainUS, max.D = 0, 
+                               max.P = 0, max.Q = 0)
+
+ARIMA_forecast_totalperUS <- forecast(object = ARIMA_totalper_fulltrainUS, h=n_fullUS)
+
 # Plot model + observed data
 autoplot(ts_US_fulltrain) +
-  autolayer(SARIMA_forecast_totalper_fulltrainUS, series="SARIMA Model",PI=FALSE)+
+  autolayer(ARIMA_forecast_totalperUS, series= "ARIMA Model",PI=FALSE)+
   ylab("Forecasted Unemployment Rate (%) in US") 
 
-# Plot 4 models together 
+
+# Plot 3 models together 
 autoplot(ts_US_fulltrain) +
   autolayer(SS_for_totalper_fulltrainUS, series="SS with BSM Model",PI=FALSE)+
-  autolayer(ETS_totalper_fulltrainUS, series="ETS",PI=FALSE)+
   autolayer(SES_deseas_totalper_fulltrainUS, series="SES Model",PI=FALSE)+
-  autolayer(SARIMA_forecast_totalper_fulltrainUS, series="SARIMA Model",PI=FALSE)+
+  autolayer(ARIMA_forecast_totalperUS, series= "ARIMA Model",PI=FALSE)+
   ylab("Unemployment Rate (%)") + 
   ggtitle("Forecasted Unemployment Rate (%) in US")
 ```
@@ -1596,12 +1593,14 @@ SS_tpscoresUSout <- accuracy(SS_for_totalperUSout$mean,ts_US_testout)
 tpscoresUSout <- as.data.frame(rbind(SANIVE_tpscoresUSout, SMA_tpscoresUSout, 
                                 SES_tpscoresUSout, SARIMA_tpscoresUSout, ARIMA_tpscoresUSout, 
                                 ETS_tpscoresUSout, ARIMA_Four_tpscoresUSout, TBATS_tpscoresUSout, 
-                                NN_tpscoresUSout, SSES_tpscoresUSout, SS_tpscoresUSout)) %>%
-  mutate(Average = rowMeans(., na.rm = TRUE))
+                                NN_tpscoresUSout, SSES_tpscoresUSout, SS_tpscoresUSout)) 
 
 row.names(tpscoresUSout) <- c("SNAIVE", "SMA", "SES", "SARIMA", "ARIMA",
                        "ETS", "ARIMA_FOURIER", "TBATS", "NNETAR",
                        "SSES", "BSM")
+
+tpscoresUSout <- tpscoresUSout %>%
+  mutate(Average = rowMeans(select(., RMSE, MAPE), na.rm = TRUE))
 
 # Choose model with lowest error
 best_model_index_tpUSout <- which.min(tpscoresUSout[,"Average"])
