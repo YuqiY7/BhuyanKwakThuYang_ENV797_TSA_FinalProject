@@ -278,7 +278,7 @@ p3_US <- ggplot(US_LF, aes(x = Month, y = LF.Part)) +
   labs(x = "", y = "Laborforce Participation (Thousands)")
 
 # Arrange plots side by side
-grid.arrange(p1_PE, p2_PE, p3_PE, ncol = 3,
+grid.arrange(p1_US, p2_US, p3_US, ncol = 3,
              top = "Unemployment Status in the US")
 
 # Comparison of Unemployment Rate between Peru and US
