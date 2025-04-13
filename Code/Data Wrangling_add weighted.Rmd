@@ -195,7 +195,13 @@ ggplot(UE_Global_Compare, aes(x = Month)) +
        y = "Unemployment Rate (%)", x = "Month", color = "Legend") +
   theme_minimal()
 
+ts_UE_Global_Compare <- ts(UE_Global_Compare, start=c(1948,1), frequency = 12)
 
+decompose_simpleavg <- decompose(ts_UE_Global_Compare[,3])
+plot(decompose_simpleavg)
+
+decompose_weightedavg <- decompose(ts_UE_Global_Compare[,2])
+plot(decompose_weightedavg)
 
 ```
 
