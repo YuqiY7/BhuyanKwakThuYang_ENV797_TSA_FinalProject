@@ -731,7 +731,7 @@ autoplot(ts_US_fulltrain) +
 ```
 
 ### Step 6: The average of 3 forecasts
-```{r}
+```{r average forecast, warning=FALSE, message=FALSE}
 
 # --- 1. Calculate the average forecast of the three models ---
 # Extract predicted means
