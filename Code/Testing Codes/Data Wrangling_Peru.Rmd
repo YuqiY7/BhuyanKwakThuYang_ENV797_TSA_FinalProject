@@ -1,0 +1,594 @@
+---
+title: "Data Wrangling"
+author: "Aye Nyein Thu"
+date: "2025-03-24"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+## Setting R code chunk options
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,tidy.opts=list(width.cutoff=80), tidy=FALSE) 
+```
+
+## Loading packages and initializing
+```{r packages, warning=FALSE, message=FALSE}
+# Load required packages
+library(readxl)
+library(openxlsx)
+library(writexl)
+library(dplyr)
+library(lubridate)
+library(ggplot2)
+library(cowplot)
+library(forecast)  
+library(Kendall)
+library(tseries)
+library(outliers)
+library(tidyverse)
+library(smooth)
+library(trend)
+library(kableExtra)
+library(tidyr)
+library(gt) #install.packages("gt")
+library(gridExtra) #install.packages("gridExtra")
+library(zoo)
+
+# Check working directory
+getwd()
+```
+
+## Importing and Wrangling Data
+```{r importing data, results='hide', warning=FALSE, message=FALSE}
+## Raw Data Set: Unemployment Rate by Age (Thousands)
+# Import data set
+UEAge.Thou <- read_excel(
+  path="./Data/Raw/UE_Age(Thousands).xlsx", sheet = "Sheet1", col_names = TRUE)
+
+# Format data set
+UEAge.Thou_Processed <- UEAge.Thou %>%
+  mutate(
+    Month = ym(sub("M", "-", Month)), 
+    Age15to24.Thou = as.numeric(`15-24`), 
+    Age25above.Thou = as.numeric(`25+`),   
+    AgeTotal.Thou = as.numeric(`15+`)) %>% 
+  rename(Country="Reference area") %>% 
+  select(Country,Month,Age15to24.Thou, Age25above.Thou, AgeTotal.Thou) %>% 
+  arrange(Country, Month)
+
+## Raw Data Set: Unemployment Rate by Age (%)
+# Import data set
+UEAge.Per <- read_excel(
+  path="./Data/Raw/UE_Age(%).xlsx", sheet = "Sheet1", col_names = TRUE)
+
+# Format data set
+UEAge.Per_Processed <- UEAge.Per %>%
+  mutate(
+    Month = ym(sub("M", "-", Month)), 
+    Age15to24.Per = as.numeric(`15-24`), 
+    Age25above.Per = as.numeric(`25+`),   
+    AgeTotal.Per = as.numeric(`15+`)) %>% 
+  rename(Country="Reference area") %>% 
+  select(Country,Month,Age15to24.Per, Age25above.Per, AgeTotal.Per) %>% 
+  arrange(Country, Month)
+
+## Raw Data Set: Unemployment Rate by Gender (Thousands)
+# Import data set
+UEGender.Thou <- read_excel(
+  path="./Data/Raw/UE_Gender(Thousands).xlsx", sheet = "Sheet1", col_names = TRUE)
+
+# Format data set
+UEGender.Thou_Processed <- UEGender.Thou %>%
+  mutate(
+    Month = ym(sub("M", "-", Month)), 
+    Female.Thou = as.numeric(Female), 
+    Male.Thou = as.numeric(Male),   
+    Total.Thou = as.numeric(Total)) %>% 
+  rename(Country="Reference area") %>% 
+  select(Country,Month,Female.Thou, Male.Thou, Total.Thou) %>% 
+  arrange(Country, Month)
+
+## Raw Data Set: Unemployment Rate by Gender (%)
+# Import data set
+UEGender.Per <- read_excel(
+  path="./Data/Raw/UE_Gender(%).xlsx", sheet = "Sheet1", col_names = TRUE)
+
+# Format data set
+UEGender.Per_Processed <- UEGender.Per %>%
+  mutate(
+    Month = ym(sub("M", "-", Month)), 
+    Female.Per = as.numeric(Female), 
+    Male.Per = as.numeric(Male),   
+    Total.Per = as.numeric(Total)) %>% 
+  rename(Country="Reference area") %>% 
+  select(Country,Month,Female.Per, Male.Per, Total.Per) %>% 
+  arrange(Country, Month)
+```
+
+```{r data wrangling Peru, warning=FALSE, message=FALSE}
+# Combine all processed data sets 
+UE_Countries <- UEAge.Thou_Processed %>% 
+  left_join(UEAge.Per_Processed, by=c("Country", "Month")) %>% 
+  left_join(UEGender.Thou_Processed, by=c("Country", "Month")) %>% 
+  left_join(UEGender.Per_Processed, by=c("Country", "Month")) 
+
+# Extract Peru Data 
+Peru <- UE_Countries %>% 
+  filter(Country == "Peru") %>% 
+  select(-Country, AgeTotal.Per, AgeTotal.Thou) %>% 
+  select(Month, Age15to24.Per, Age25above.Per, Female.Per, Male.Per,
+         Total.Per, Age15to24.Thou, Age25above.Thou, Female.Thou, Male.Thou,
+         Total.Thou) 
+
+# Check Missing Value 
+sum(is.na(Peru))
+```
+
+```{r data wrangling global, warning=FALSE, message=FALSE}
+# Generate global unemployment data using simple average 
+UE_Global <- UE_Countries %>%
+  group_by(Month) %>%
+  summarise(
+    Age15to24.Thou = mean(`Age15to24.Thou`, na.rm = TRUE),
+    Age25above.Thou = mean(`Age25above.Thou`, na.rm = TRUE), 
+    AgeTotal.Thou = mean(`AgeTotal.Thou`, na.rm = TRUE), 
+    Age15to24.Per = mean(`Age15to24.Thou`, na.rm = TRUE),
+    Age25above.Per = mean(`Age25above.Per`, na.rm = TRUE), 
+    AgeTotal.Per = mean(`AgeTotal.Per`, na.rm = TRUE), 
+    Female.Thou = mean(`Female.Thou`, na.rm = TRUE),
+    Male.Thou = mean(`Male.Thou`, na.rm = TRUE),
+    Total.Thou = mean(`Total.Thou`, na.rm = TRUE),
+    Female.Per = mean(`Female.Per`, na.rm = TRUE),
+    Male.Per = mean(`Male.Per`, na.rm = TRUE),
+    Total.Per = mean(`Total.Per`, na.rm = TRUE))
+
+# Generate global unemployment data using weighted average 
+UE_Global_Weighted <- UE_Countries %>%
+  filter(apply(UE_Countries[, 3:14], 1, function(x) all(!is.na(x)))) %>%  
+  group_by(Month) %>%
+  summarise(
+    Age15to24.Per = sum(Age15to24.Thou) / sum(Age15to24.Thou / Age15to24.Per), 
+    Age25above.Per = sum(Age25above.Thou) / sum(Age25above.Thou / Age25above.Per),
+    Female.Per = sum(Female.Thou) / sum(Female.Thou / Female.Per),
+    Male.Per = sum(Male.Thou) / sum(Male.Thou / Male.Per),
+    Total.Per = sum(Total.Thou) / sum(Total.Thou / Total.Per),
+    
+    Age15to24.Thou = mean(Age15to24.Thou, na.rm = TRUE),
+    Age25above.Thou = mean(Age25above.Thou, na.rm = TRUE),
+    Female.Thou = mean(Female.Thou, na.rm = TRUE),
+    Male.Thou = mean(Male.Thou, na.rm = TRUE),
+    Total.Thou = mean(Total.Thou, na.rm = TRUE)
+  )
+
+# Generate weighted global unemployment yearly
+UE_Global_Yearly <- UE_Global_Weighted %>% 
+  mutate(Year = year(Month)) %>%
+  group_by(Year) %>% 
+  summarize(across(where(is.numeric), mean)) #%>% 
+  #filter(Year >= 2000 & Year <= 2024)
+
+```
+
+## Descriptive Statistics 
+### Global Unemployment Status
+```{r global, warning=FALSE, message=FALSE}
+# Check total no. of countries 
+print(length(unique(UE_Countries$Country)))
+
+# Plot global unemployment rate for simple average vs. weighted average 
+UE_Global_Combined <- bind_rows(
+  UE_Global %>% mutate(Source = "Simple Average"),
+  UE_Global_Weighted %>% mutate(Source = "Weighted Average")
+)
+
+ggplot(UE_Global_Combined, aes(x = Month, y = Total.Per, color = Source)) +
+  geom_line() +               
+  labs(title = "Global Unemployment Rate: Simple Vs. Weighted Average",
+       x = "Month", y = "Global Unemployment Rate (%)", color = "Source") 
+
+# Plots
+# Global Unemployment Rate 
+ggplot(UE_Global_Yearly, aes(x = Year, y = Total.Per)) +
+  geom_line() +               
+  labs(title = "Global Unemployment Rate",
+       x = "Year", y = "Global Unemployment Rate (%)")
+
+# Global Unemployment Rate by Age
+ggplot(UE_Global_Yearly, aes(x = Year)) +
+  geom_line(aes(y = Age15to24.Per, color = "Age 15-24")) +
+  geom_line(aes(y = Age25above.Per, color = "Age 25+")) +
+  labs(title = "Global Unemployment Rate by Age",
+       x = "Year", y = "Global Unemployment Rate (%)", color = "Age Group") +
+  scale_color_manual(values = c("Age 15-24" = "blue", "Age 25+" = "red"))
+
+# Global Unemployment Rate by Sex
+ggplot(UE_Global_Yearly, aes(x = Year)) +
+  geom_line(aes(y = Female.Per, color = "Female")) +
+  geom_line(aes(y = Male.Per, color = "Male")) +
+  labs(title = "Global Unemployment Rate by Sex",
+       x = "Year", y = "Global Unemployment Rate (%)", color = "Sex Group") +
+  scale_color_manual(values = c("Female" = "blue", "Male" = "red"))
+```
+
+### Peru Unemployment Status
+```{r peru, warning=FALSE, message=FALSE}
+# First plot: Unemployment Rate (Thousands)
+p1 <- ggplot(Peru, aes(x = Month, y = Total.Thou)) +
+  geom_line(color = "blue", alpha = 1) +
+  labs(title = "Unemployment in Thousands", x = "Year", y = "Thousands") 
+
+# Second plot: Unemployment Rate (%)
+p2 <- ggplot(Peru, aes(x = Month, y = Total.Per)) +
+  geom_line(color = "red", alpha = 1) +
+  labs(title = "Unemployment Rate (%)", x = "Year", y = "Percentage") 
+
+# Arrange plots side by side
+grid.arrange(p1, p2, ncol = 2)
+
+# Generate Laborforce Participation 
+Peru_LF <- Peru %>% 
+  mutate(LF.Part = (Total.Thou / Total.Per) * 100) 
+
+p3 <- ggplot(Peru_LF, aes(x = Month, y = LF.Part)) +
+  geom_line(color = "orange", alpha = 1) +
+  labs(title = "Laborforce Participation Rate (%)", x = "Year", y = "Thousands")
+
+# Arrange plots side by side
+grid.arrange(p1, p2, p3, ncol = 3)
+
+# Take a few countries out for comparison
+UE_Comparison <- UE_Countries %>% 
+  filter(Country %in% c("Peru", "Colombia", "Mexico", "Chile")) %>% 
+  mutate(Month = as.Date(Month)) 
+
+# Plot total unemployment rate for each countries
+ggplot(UE_Comparison, aes(x = Month, y = Total.Per, color = Country)) +
+  geom_line(size = 1.2) +  
+  geom_point(size = 1.5, alpha = 0.7) + 
+  theme_gray(base_size = 14) +  
+  labs(title = "Unemployment Rate by Countries (2001-2024)",
+    x = "Year", y = "Unemployment Rate (%)", color = "Country") +
+  theme(plot.title = element_text(face = "bold", size = 16),
+    axis.title.y = element_text(size = 14), axis.text = element_text(size = 12),
+    legend.position = "right")
+
+# Peru Unemployment Rate by Age Group 
+ggplot(Peru, aes(x = Month)) +
+  geom_line(aes(y = Age15to24.Per, color = "Age 15-24"), size = 1.2) +
+  geom_line(aes(y = Age25above.Per, color = "Age 25+"), size = 1.2) +
+  geom_point(aes(y = Age15to24.Per, color = "Age 15-24"), size = 2, alpha = 0.7) +
+  geom_point(aes(y = Age25above.Per, color = "Age 25+"), size = 2, alpha = 0.7) +
+  labs(title = "Peru Unemployment Rate by Age",
+    x = "Year", y = "Unemployment Rate (%)", color = "Age Group") +
+  scale_color_manual(values = c("Age 15-24" = "blue", "Age 25+" = "red")) +
+  theme_gray(base_size = 14) +  
+  theme(plot.title = element_text(face = "bold", size = 16),
+    axis.title.x = element_text(size = 14), axis.title.y = element_text(size = 14),
+    axis.text = element_text(size = 12), legend.position = "bottom") 
+
+# Peru Unemployment Rate by Sex Group 
+ggplot(Peru, aes(x = Month)) +
+  geom_line(aes(y = Female.Per, color = "Female"), size = 1.2) +
+  geom_line(aes(y = Male.Per, color = "Male"), size = 1.2) +
+  geom_point(aes(y = Female.Per, color = "Female"), size = 2, alpha = 0.7) +
+  geom_point(aes(y = Male.Per, color = "Male"), size = 2, alpha = 0.7) +
+  labs(title = "Peru Unemployment Rate by Sex",
+    x = "Year", y = "Unemployment Rate (%)", color = "Sex Group") +
+  scale_color_manual(values = c("Female" = "blue", "Male" = "red")) +
+  theme_gray(base_size = 14) +  # Minimal theme for cleaner look
+  theme(plot.title = element_text(face = "bold", size = 16),
+    axis.title.x = element_text(size = 14), axis.title.y = element_text(size = 14),
+    axis.text = element_text(size = 12), legend.position = "bottom")
+```
+
+```{r missing month handling}
+# Check regularity of time index
+diff_date <- diff(Peru$Month)
+table(diff_date)  # There's one missing month.
+
+# Create full monthly sequence
+full_month_seq <- data.frame(Month = seq.Date(from = min(Peru$Month),
+                                              to = max(Peru$Month),
+                                              by = "month"))
+
+# Join with original to find missing months
+missing_months <- full_month_seq %>%
+  anti_join(Peru, by = "Month")
+
+print(missing_months)  # Missing month is 2012-09-01
+
+# Fill in missing months with NA and interpolate linearly
+Peru <- full_month_seq %>%
+  left_join(Peru, by = "Month") %>% 
+  mutate(across(where(is.numeric), ~na.approx(.x, na.rm = FALSE)))
+```
+
+```{r summary stats table}
+# Generate Summary Statistics
+summary_table <- Peru %>%
+  select(-Month) %>%  # Exclude Month column
+  summarise(across(where(is.numeric), 
+                   list(Mean = ~ mean(.x),
+                        SD = ~ sd(.x),
+                        Min = ~ min(.x),
+                        Max = ~ max(.x),
+                        N = ~ sum(!is.na(.x))))) %>%
+  pivot_longer(everything(), names_to = c("Variable", ".value"), names_sep = "_") %>% 
+  gt() %>%
+  tab_header(title = "Summary Statistics of Unemployment Data in Peru",
+    subtitle = "Monthly Data (2001-2024)") %>%
+  fmt_number(columns = 2:6, decimals = 2) %>%
+  cols_label(Variable = "Indicator", Mean = "Mean", SD = "Standard Deviation",
+    Min = "Min", Max = "Max", N = "Observations") %>%
+  tab_options(table.font.size = px(14),
+    heading.title.font.size = px(18), heading.subtitle.font.size = px(14))
+
+print(summary_table)
+
+# Check outliers 
+outlier(Peru) 
+grubbs.test(Peru$Age15to24.Thou) # This is an outlier. 
+grubbs.test(Peru$Age25above.Thou) # This is an outlier. 
+grubbs.test(Peru$Age15to24.Per) 
+grubbs.test(Peru$Age25above.Per)
+grubbs.test(Peru$Female.Thou) # This is an outlier. 
+grubbs.test(Peru$Male.Thou) # This is an outlier. 
+grubbs.test(Peru$Female.Per)
+grubbs.test(Peru$Male.Per)
+grubbs.test(Peru$Total.Thou) # This is an outlier. 
+grubbs.test(Peru$Total.Per)
+
+# Check the box plot for total unemployment 
+boxplot(Peru$Total.Per,
+        main = "Boxplot: Peru Unemployment Rate (%)",
+        horizontal = TRUE, 
+        col = "lightblue")
+
+# Find the row where Total.Per is the outlier (10.8%)
+outlier_row <- Peru %>%
+  filter(Total.Per == max(Total.Per, na.rm = TRUE))
+
+print(outlier_row) # Highest Value is 2005-02-01. 
+```
+
+## Transforming into time series and Setting training and testing windows
+```{r time series}
+# Transform into time series
+ts_Peru <- ts(Peru[,2:11],
+              start=c(year(Peru$Month[1]), month(Peru$Month[1])),
+              frequency = 12)
+
+# Set the period
+nobs = nrow(Peru)
+n_for = 12
+
+# Create a subset for training purpose 
+ts_Peru_train <- ts(Peru[1:(nobs-n_for),2:11],
+                    start=c(year(Peru$Month[1]), month(Peru$Month[1])),
+                    frequency = 12)
+
+# Create a subset for testing purpose
+start_row = nobs - n_for + 1
+ts_Peru_test <- ts(Peru[(nobs-n_for+1):nobs,2:11],
+                   start=c(year(Peru$Month[start_row]),
+                           month(Peru$Month[start_row])), frequency = 12)
+
+# Plots 
+train <- autoplot(ts_Peru_train[,"Total.Per"]) + ylab("Unemployment Rate (%)") +
+  ggtitle("Training Window")
+test <- autoplot(ts_Peru_test[,"Total.Per"]) + ylab("Unemployment Rate (%)") +
+  ggtitle("Testing Window")
+grid.arrange(train, test, ncol = 2)
+
+par(mfrow=c(1,2))
+Acf(ts_Peru_train[,"Total.Per"], lag=40, plot = TRUE, main = "")
+Pacf(ts_Peru_train[,"Total.Per"], lag=40, plot = TRUE, main = "")
+par(mfrow=c(1,1))
+```
+
+## Decompose the time series 
+```{r total.per decompose, warning=FALSE, message=FALSE}
+# Decompose 
+decom_totalper_train <- decompose(ts_Peru_train[,"Total.Per"])
+plot(decom_totalper_train)
+
+# Deseason 
+deseas_totalper_train <- seasadj(decom_totalper_train)  
+plot(deseas_totalper_train)
+
+# Run the tests on deseasoned series
+print(adf.test(deseas_totalper_train, alternative = "stationary")) # It is unit root. 
+summary(MannKendall(deseas_totalper_train)) # It has a decreasing trend.
+
+# Run the tests on original series 
+print(adf.test(ts_Peru_train[,"Total.Per"], alternative = "stationary")) # It is stationary. 
+summary(SeasonalMannKendall(ts_Peru_train[,"Total.Per"])) 
+summary(smk.test(ts_Peru_train[,"Total.Per"])) # It has seasonality. 
+
+# Check for any differencing needed 
+print(ndiffs(ts_Peru_train[,"Total.Per"]))
+print(ndiffs(deseas_totalper_train))
+```
+
+## Testing Time Series Models 
+```{r time series models, warning=FALSE, message=FALSE}
+# Seasonal Naive Model 
+SNAIVE_deseas_totalper <- snaive(ts_Peru_train[,"Total.Per"], h=n_for)
+autoplot(SNAIVE_deseas_totalper)
+checkresiduals(SNAIVE_deseas_totalper)
+
+# Simple Moving Average Model
+SMA_deseas_totalper <- smooth::sma(y = deseas_totalper_train, h=n_for, holdout = FALSE, silent = FALSE) 
+summary(SMA_deseas_totalper)
+checkresiduals(SMA_deseas_totalper)
+
+# Simple Exponential Smoothing Model
+SES_deseas_totalper = ses( y = deseas_totalper_train, h=n_for, holdout = FALSE, silent = FALSE)  
+summary(SES_deseas_totalper)
+autoplot(SES_deseas_totalper)
+checkresiduals(SES_deseas_totalper)
+
+# SARIMA Model
+SARIMA_totalper <- auto.arima(ts_Peru_train[,"Total.Per"])
+print(SARIMA_totalper)
+
+SARIMA_forecast_totalper <- forecast(object = SARIMA_totalper, h=n_for)
+autoplot(SARIMA_forecast_totalper)
+checkresiduals(SARIMA_forecast_totalper) # Residuals are iid.
+
+# Deaseasoned ARIMA Model
+ARIMA_totalper <- auto.arima(deseas_totalper_train, max.D = 0, max.P = 0, max.Q = 0)
+print(ARIMA_totalper)
+
+ARIMA_forecast_totalper <- forecast(object = ARIMA_totalper, h=n_for)
+autoplot(ARIMA_forecast_totalper)
+checkresiduals(ARIMA_forecast_totalper) # Residuals are iid.
+ 
+# STL + ETS Model
+ETS_totalper <-  stlf(ts_Peru_train[,"Total.Per"],h=n_for)
+autoplot(ETS_totalper) 
+checkresiduals(ETS_totalper) # Residuals are not iid. 
+
+# ARIMA + FOURIER Model
+ARIMA_Four_fit_totalper <- auto.arima(ts_Peru_train[,"Total.Per"], 
+                             seasonal=FALSE, lambda=0,
+                             xreg=fourier(ts_Peru_train[,"Total.Per"], 
+                                          K=3))
+
+ARIMA_Four_for_totalper <- forecast(ARIMA_Four_fit_totalper,
+                           xreg=fourier(ts_Peru_train[,"Total.Per"],
+                                        K=3, h=n_for),
+                           h=n_for) 
+
+autoplot(ARIMA_Four_for_totalper)
+checkresiduals(ARIMA_Four_for_totalper) # Better fit
+
+# TBATS Model 
+TBATS_fit_totalper <- tbats(ts_Peru_train[,"Total.Per"])
+TBATS_for_totalper <- forecast(TBATS_fit_totalper, h = n_for)
+autoplot(TBATS_for_totalper) 
+checkresiduals(TBATS_fit_totalper) # Better fit
+
+# Neural Network Model 
+NN_fit_totalper <- nnetar(ts_Peru_train[,"Total.Per"],
+                 p=3, P=0,
+                 xreg=fourier(ts_Peru_train[,"Total.Per"], K=3))
+
+NN_for_totalper <- forecast(NN_fit_totalper, 
+                   h=n_for,
+                   xreg=fourier(ts_Peru_train[,"Total.Per"], 
+                                          K=3,h=n_for))
+
+autoplot(NN_for_totalper)
+checkresiduals(NN_fit_totalper) # Residuals are not iid.
+
+## State Space Exponential Smoothing Model
+SSES_seas_totalper <- es(ts_Peru_train[,"Total.Per"],
+                         model="ZZZ", h=n_for, holdout=FALSE)
+checkresiduals(SSES_seas_totalper) # Residuals are not iid.
+
+## State Space with BSM Model
+SS_seas_totalper <- StructTS(ts_Peru_train[,"Total.Per"],
+                    type="BSM",fixed=c(0.3,0.01,0.1,NA)) 
+
+SS_for_totalper <- forecast(SS_seas_totalper,h=n_for)
+
+plot(SS_for_totalper)
+checkresiduals(SS_seas_totalper) # Residuals are not iid. 
+```
+
+## Performance Check
+```{r accuracy, warning=FALSE, message=FALSE}
+# Check accuracy of the models
+SANIVE_tpscores <- accuracy(SNAIVE_deseas_totalper $mean,ts_Peru_test[,"Total.Per"])  
+SMA_tpscores <- accuracy(SMA_deseas_totalper$forecast,ts_Peru_test[,"Total.Per"])  
+SES_tpscores <- accuracy(SES_deseas_totalper$mean,ts_Peru_test[,"Total.Per"])
+SARIMA_tpscores <- accuracy(SARIMA_forecast_totalper$mean,ts_Peru_test[,"Total.Per"])
+ARIMA_tpscores <- accuracy(ARIMA_forecast_totalper$mean,ts_Peru_test[,"Total.Per"])
+ETS_tpscores <- accuracy(ETS_totalper$mean,ts_Peru_test[,"Total.Per"])
+ARIMA_Four_tpscores <- accuracy(ARIMA_Four_for_totalper$mean,ts_Peru_test[,"Total.Per"])
+TBATS_tpscores <- accuracy(TBATS_for_totalper$mean,ts_Peru_test[,"Total.Per"])
+NN_tpscores <- accuracy(NN_for_totalper$mean,ts_Peru_test[,"Total.Per"])
+SSES_tpscores <- accuracy(SSES_seas_totalper$forecast,ts_Peru_test[,"Total.Per"])
+SS_tpscores <- accuracy(SS_for_totalper$mean,ts_Peru_test[,"Total.Per"])
+
+# Compare the matrix 
+tpscores <- as.data.frame(rbind(SANIVE_tpscores, SMA_tpscores, 
+                                SES_tpscores, SARIMA_tpscores, ARIMA_tpscores, 
+                                ETS_tpscores, ARIMA_Four_tpscores, TBATS_tpscores, 
+                                NN_tpscores, SSES_tpscores, SS_tpscores)) %>%
+  mutate(Average = rowMeans(., na.rm = TRUE))
+
+row.names(tpscores) <- c("SNAIVE", "SMA", "SES", "SARIMA", "ARIMA",
+                       "ETS", "ARIMA_FOURIER", "TBATS", "NNETAR",
+                       "SSES", "BSM")
+
+# Choose model with lowest error
+best_model_index_tp <- which.min(tpscores[,"Average"])
+cat("The best model by Average is:", row.names(tpscores[best_model_index_tp,]))  
+
+# Create Tables 
+kbl(tpscores, 
+      caption = "Forecast Accuracy for Unemployment Rate (%) Data",
+      digits = array(5,ncol(tpscores))) %>%
+  kable_styling(full_width = FALSE, position = "center") %>%
+  #highlight model with lowest RMSE
+  kable_styling(latex_options="striped", stripe_index = which.min(seas_scores[,"Average"]))
+
+# Plot everything together
+autoplot(ts_Peru_test[,"Total.Per"]) +
+  autolayer(SNAIVE_deseas_totalper, PI=FALSE, series="SNAIVE") + 
+  autolayer(SES_deseas_totalper, PI=FALSE, series="SES") +
+  autolayer(SARIMA_forecast_totalper, PI=FALSE, series="SARIMA") +
+  autolayer(ARIMA_forecast_totalper, PI=FALSE, series="ARIMA") +
+  autolayer(ETS_totalper, PI=FALSE, series="ETS") +
+  autolayer(ARIMA_Four_for_totalper, PI=FALSE, series="ARIMA_FOURIER") +
+  autolayer(TBATS_for_totalper, PI=FALSE, series="TBATS") +
+  autolayer(NN_for_totalper, PI=FALSE, series="NNETAR") +
+  autolayer(SS_for_totalper, PI=FALSE, series="BSM") +
+  guides(colour=guide_legend(title="Forecast")) # SMA and SSES could not run
+```
+
+## Forecasting for 2025 with the best three models 
+```{r forecast 2025, warning=FALSE, message=FALSE}
+# Set the forecasting period
+n_full = 52
+
+# Create the time series to retain full data set
+ts_Peru_fulltrain <- ts(Peru[,6],
+              start=c(year(Peru$Month[1]), month(Peru$Month[1])),
+              frequency = 12)
+
+# Fit SSES Model 
+SSES_seas_totalper_fulltrain <- es(ts_Peru_fulltrain,
+                         model="ZZZ", h=n_full, holdout=FALSE)
+
+SSES_for_totalper_fulltrain <- forecast(SSES_seas_totalper_fulltrain, h=n_full)
+
+# Plot model + observed data
+autoplot(ts_Peru_fulltrain) +
+  autolayer(SSES_for_totalper_fulltrain, series="SSES",PI=FALSE)+
+  ylab("Forecasted Unemployment Rate (%) in Peru") 
+
+# Fit ETS Model 
+ETS_seas_totalper_fulltrain <-  stlf(ts_Peru_fulltrain,h=n_full)
+ETS_for_totalper_fulltrain <- forecast(ETS_seas_totalper_fulltrain, h=n_full)
+
+# Plot model + observed data
+autoplot(ts_Peru_fulltrain) +
+  autolayer(ETS_for_totalper_fulltrain, series="ETS",PI=FALSE)+
+  ylab("Forecasted Unemployment Rate (%) in Peru")
+
+# Fit SS with BSM Model 
+SS_seas_totalper_fulltrain <- StructTS(ts_Peru_fulltrain,
+                    type="BSM",fixed=c(0.3,0.01,0.1,NA)) 
+
+SS_for_totalper_fulltrain <- forecast(SS_seas_totalper_fulltrain,h=n_full)
+
+# Plot model + observed data
+autoplot(ts_Peru_fulltrain) +
+  autolayer(SS_for_totalper_fulltrain, series="SS with BSM Model",PI=FALSE)+
+  ylab("Forecasted Unemployment Rate (%) in Peru") 
+```
+

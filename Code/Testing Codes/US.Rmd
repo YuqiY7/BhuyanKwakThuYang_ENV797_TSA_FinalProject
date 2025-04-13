@@ -113,16 +113,17 @@ UE_Countries <- UEAge.Thou_Processed %>%
   left_join(UEGender.Thou_Processed, by=c("Country", "Month")) %>% 
   left_join(UEGender.Per_Processed, by=c("Country", "Month")) 
 
-# Extract Peru Data 
-Peru <- UE_Countries %>% 
-  filter(Country == "Peru") %>% 
+# Extract US Data 
+US <- UE_Countries %>% 
+  filter(Country == "United States of America",
+         Month >= as.Date("2001-01-01") & Month <= as.Date("2024-12-01")) %>% 
   select(-Country, AgeTotal.Per, AgeTotal.Thou) %>% 
   select(Month, Age15to24.Per, Age25above.Per, Female.Per, Male.Per,
          Total.Per, Age15to24.Thou, Age25above.Thou, Female.Thou, Male.Thou,
          Total.Thou) 
 
 # Check Missing Value 
-sum(is.na(Peru))
+sum(is.na(US))
 ```
 
 ```{r data wrangling global, warning=FALSE, message=FALSE}
@@ -211,15 +212,15 @@ ggplot(UE_Global_Yearly, aes(x = Year)) +
   scale_color_manual(values = c("Female" = "blue", "Male" = "red"))
 ```
 
-### Peru Unemployment Status
+### United States Unemployment Status
 ```{r peru, warning=FALSE, message=FALSE}
 # First plot: Unemployment Rate (Thousands)
-p1 <- ggplot(Peru, aes(x = Month, y = Total.Thou)) +
+p1US <- ggplot(US, aes(x = Month, y = Total.Thou)) +
   geom_line(color = "blue", alpha = 1) +
   labs(title = "Unemployment in Thousands", x = "Year", y = "Thousands") 
 
 # Second plot: Unemployment Rate (%)
-p2 <- ggplot(Peru, aes(x = Month, y = Total.Per)) +
+p2US <- ggplot(US, aes(x = Month, y = Total.Per)) +
   geom_line(color = "red", alpha = 1) +
   labs(title = "Unemployment Rate (%)", x = "Year", y = "Percentage") 
 
@@ -227,10 +228,10 @@ p2 <- ggplot(Peru, aes(x = Month, y = Total.Per)) +
 grid.arrange(p1, p2, ncol = 2)
 
 # Generate Laborforce Participation 
-Peru_LF <- Peru %>% 
+US_LF <- US %>% 
   mutate(LF.Part = (Total.Thou / Total.Per) * 100) 
 
-p3 <- ggplot(Peru_LF, aes(x = Month, y = LF.Part)) +
+p3 <- ggplot(US_LF, aes(x = Month, y = LF.Part)) +
   geom_line(color = "orange", alpha = 1) +
   labs(title = "Laborforce Participation Rate (%)", x = "Year", y = "Thousands")
 
@@ -239,8 +240,9 @@ grid.arrange(p1, p2, p3, ncol = 3)
 
 # Take a few countries out for comparison
 UE_Comparison <- UE_Countries %>% 
-  filter(Country %in% c("Peru", "Colombia", "Mexico", "Chile")) %>% 
-  mutate(Month = as.Date(Month)) 
+  filter(Country %in% c("Peru", "United States of America")) %>% 
+  mutate(Month = as.Date(Month)) %>% 
+  filter(Month >= as.Date("2001-01-01") & Month <= as.Date("2024-12-01"))
 
 # Plot total unemployment rate for each countries
 ggplot(UE_Comparison, aes(x = Month, y = Total.Per, color = Country)) +
@@ -254,12 +256,12 @@ ggplot(UE_Comparison, aes(x = Month, y = Total.Per, color = Country)) +
     legend.position = "right")
 
 # Peru Unemployment Rate by Age Group 
-ggplot(Peru, aes(x = Month)) +
+ggplot(US, aes(x = Month)) +
   geom_line(aes(y = Age15to24.Per, color = "Age 15-24"), size = 1.2) +
   geom_line(aes(y = Age25above.Per, color = "Age 25+"), size = 1.2) +
   geom_point(aes(y = Age15to24.Per, color = "Age 15-24"), size = 2, alpha = 0.7) +
   geom_point(aes(y = Age25above.Per, color = "Age 25+"), size = 2, alpha = 0.7) +
-  labs(title = "Peru Unemployment Rate by Age",
+  labs(title = "US Unemployment Rate by Age",
     x = "Year", y = "Unemployment Rate (%)", color = "Age Group") +
   scale_color_manual(values = c("Age 15-24" = "blue", "Age 25+" = "red")) +
   theme_gray(base_size = 14) +  
@@ -268,7 +270,7 @@ ggplot(Peru, aes(x = Month)) +
     axis.text = element_text(size = 12), legend.position = "bottom") 
 
 # Peru Unemployment Rate by Sex Group 
-ggplot(Peru, aes(x = Month)) +
+ggplot(US, aes(x = Month)) +
   geom_line(aes(y = Female.Per, color = "Female"), size = 1.2) +
   geom_line(aes(y = Male.Per, color = "Male"), size = 1.2) +
   geom_point(aes(y = Female.Per, color = "Female"), size = 2, alpha = 0.7) +
@@ -282,31 +284,15 @@ ggplot(Peru, aes(x = Month)) +
     axis.text = element_text(size = 12), legend.position = "bottom")
 ```
 
-```{r missing month handling}
+```{r missing month checking}
 # Check regularity of time index
-diff_date <- diff(Peru$Month)
-table(diff_date)  # There's one missing month.
-
-# Create full monthly sequence
-full_month_seq <- data.frame(Month = seq.Date(from = min(Peru$Month),
-                                              to = max(Peru$Month),
-                                              by = "month"))
-
-# Join with original to find missing months
-missing_months <- full_month_seq %>%
-  anti_join(Peru, by = "Month")
-
-print(missing_months)  # Missing month is 2012-09-01
-
-# Fill in missing months with NA and interpolate linearly
-Peru <- full_month_seq %>%
-  left_join(Peru, by = "Month") %>% 
-  mutate(across(where(is.numeric), ~na.approx(.x, na.rm = FALSE)))
+diff_date <- diff(US$Month)
+table(diff_date)  # There's no missing month.
 ```
 
 ```{r summary stats table}
 # Generate Summary Statistics
-summary_table <- Peru %>%
+summary_table <- US %>%
   select(-Month) %>%  # Exclude Month column
   summarise(across(where(is.numeric), 
                    list(Mean = ~ mean(.x),
@@ -316,7 +302,7 @@ summary_table <- Peru %>%
                         N = ~ sum(!is.na(.x))))) %>%
   pivot_longer(everything(), names_to = c("Variable", ".value"), names_sep = "_") %>% 
   gt() %>%
-  tab_header(title = "Summary Statistics of Unemployment Data in Peru",
+  tab_header(title = "Summary Statistics of Unemployment Data in US",
     subtitle = "Monthly Data (2001-2024)") %>%
   fmt_number(columns = 2:6, decimals = 2) %>%
   cols_label(Variable = "Indicator", Mean = "Mean", SD = "Standard Deviation",
