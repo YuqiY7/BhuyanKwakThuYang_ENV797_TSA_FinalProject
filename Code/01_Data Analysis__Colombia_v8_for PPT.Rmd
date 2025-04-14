@@ -1,0 +1,1342 @@
+---
+title: 'Forecasting Unemployment Trends: A Comparative Time Series Analysis of Colombia
+  and the United States'
+author: "Aye Nyein Thu, Mazhar Bhuyan, Yuqi Yang, Jisup Kwak"
+date: "2025-03-24"
+output:
+  html_document: default
+  pdf_document: default
+editor_options:
+  chunk_output_type: console
+---
+
+## Setting R code chunk options
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  error = TRUE,   
+  results = 'markup',
+  tidy.opts = list(width.cutoff = 80),
+  tidy = FALSE
+)
+
+```
+
+## Loading packages and initializing
+```{r packages, warning=FALSE, message=FALSE}
+# Load required packages
+library(readxl)
+library(openxlsx)
+library(writexl)
+library(dplyr)
+library(lubridate)
+library(ggplot2)
+library(cowplot)
+library(forecast)  
+library(Kendall)
+library(tseries)
+library(outliers)
+library(tidyverse)
+library(smooth)
+library(trend)
+library(kableExtra)
+library(tidyr)
+library(gt)
+library(gridExtra)
+library(zoo)
+library(imputeTS)
+
+
+# Check working directory
+getwd()
+```
+
+## Importing and Wrangling Data
+```{r importing data, results='hide', warning=FALSE, message=FALSE}
+## Raw Data Set: Unemployment Rate by Age (Thousands)
+# Import data set
+UEAge.Thou <- read_excel(
+  path="./Data/Raw/UE_Age(Thousands).xlsx", sheet = "Sheet1", col_names = TRUE)
+
+# Format data set
+UEAge.Thou_Processed <- UEAge.Thou %>%
+  mutate(
+    Month = ym(sub("M", "-", Month)), 
+    Age15to24.Thou = as.numeric(`15-24`), 
+    Age25above.Thou = as.numeric(`25+`),   
+    AgeTotal.Thou = as.numeric(`15+`)) %>% 
+  rename(Country="Reference area") %>% 
+  select(Country,Month,Age15to24.Thou, Age25above.Thou, AgeTotal.Thou) %>% 
+  arrange(Country, Month)
+
+## Raw Data Set: Unemployment Rate by Age (%)
+# Import data set
+UEAge.Per <- read_excel(
+  path="./Data/Raw/UE_Age(%).xlsx", sheet = "Sheet1", col_names = TRUE)
+
+# Format data set
+UEAge.Per_Processed <- UEAge.Per %>%
+  mutate(
+    Month = ym(sub("M", "-", Month)), 
+    Age15to24.Per = as.numeric(`15-24`), 
+    Age25above.Per = as.numeric(`25+`),   
+    AgeTotal.Per = as.numeric(`15+`)) %>% 
+  rename(Country="Reference area") %>% 
+  select(Country,Month,Age15to24.Per, Age25above.Per, AgeTotal.Per) %>% 
+  arrange(Country, Month)
+
+## Raw Data Set: Unemployment Rate by Gender (Thousands)
+# Import data set
+UEGender.Thou <- read_excel(
+  path="./Data/Raw/UE_Gender(Thousands).xlsx", sheet = "Sheet1", col_names = TRUE)
+
+# Format data set
+UEGender.Thou_Processed <- UEGender.Thou %>%
+  mutate(
+    Month = ym(sub("M", "-", Month)), 
+    Female.Thou = as.numeric(Female), 
+    Male.Thou = as.numeric(Male),   
+    Total.Thou = as.numeric(Total)) %>% 
+  rename(Country="Reference area") %>% 
+  select(Country,Month,Female.Thou, Male.Thou, Total.Thou) %>% 
+  arrange(Country, Month)
+
+## Raw Data Set: Unemployment Rate by Gender (%)
+# Import data set
+UEGender.Per <- read_excel(
+  path="./Data/Raw/UE_Gender(%).xlsx", sheet = "Sheet1", col_names = TRUE)
+
+# Format data set
+UEGender.Per_Processed <- UEGender.Per %>%
+  mutate(
+    Month = ym(sub("M", "-", Month)), 
+    Female.Per = as.numeric(Female), 
+    Male.Per = as.numeric(Male),   
+    Total.Per = as.numeric(Total)) %>% 
+  rename(Country="Reference area") %>% 
+  select(Country,Month,Female.Per, Male.Per, Total.Per) %>% 
+  arrange(Country, Month)
+```
+
+```{r data wrangling Colombia, warning=FALSE, message=FALSE}
+# Combine all processed data sets 
+UE_Countries <- UEAge.Thou_Processed %>% 
+  left_join(UEAge.Per_Processed, by=c("Country", "Month")) %>% 
+  left_join(UEGender.Thou_Processed, by=c("Country", "Month")) %>% 
+  left_join(UEGender.Per_Processed, by=c("Country", "Month")) 
+
+# Extract Colombia Data
+Colombia <- UE_Countries %>% 
+  filter(Country == "Colombia") %>% 
+  select(-Country, AgeTotal.Per, AgeTotal.Thou) %>% 
+  select(Month, Age15to24.Per, Age25above.Per, Female.Per, Male.Per,
+         Total.Per, Age15to24.Thou, Age25above.Thou, Female.Thou, Male.Thou,
+         Total.Thou) 
+
+
+# Check Missing Value 
+sum(is.na(Colombia))
+
+# Extract US Data 
+US <- UE_Countries %>% 
+  filter(Country == "United States of America",
+         Month >= as.Date("2001-01-01") & Month <= as.Date("2024-12-01")) %>% 
+  select(-Country, AgeTotal.Per, AgeTotal.Thou) %>% 
+  select(Month, Age15to24.Per, Age25above.Per, Female.Per, Male.Per,
+         Total.Per, Age15to24.Thou, Age25above.Thou, Female.Thou, Male.Thou,
+         Total.Thou) 
+
+# Check Missing Value 
+sum(is.na(US))
+```
+
+```{r data wrangling global, warning=FALSE, message=FALSE}
+# Generate global unemployment data using simple average 
+UE_Global <- UE_Countries %>%
+  group_by(Month) %>%
+  summarise(
+    Age15to24.Thou = mean(`Age15to24.Thou`, na.rm = TRUE),
+    Age25above.Thou = mean(`Age25above.Thou`, na.rm = TRUE), 
+    AgeTotal.Thou = mean(`AgeTotal.Thou`, na.rm = TRUE), 
+    Age15to24.Per = mean(`Age15to24.Thou`, na.rm = TRUE),
+    Age25above.Per = mean(`Age25above.Per`, na.rm = TRUE), 
+    AgeTotal.Per = mean(`AgeTotal.Per`, na.rm = TRUE), 
+    Female.Thou = mean(`Female.Thou`, na.rm = TRUE),
+    Male.Thou = mean(`Male.Thou`, na.rm = TRUE),
+    Total.Thou = mean(`Total.Thou`, na.rm = TRUE),
+    Female.Per = mean(`Female.Per`, na.rm = TRUE),
+    Male.Per = mean(`Male.Per`, na.rm = TRUE),
+    Total.Per = mean(`Total.Per`, na.rm = TRUE))
+
+# Generate global unemployment data using weighted average 
+UE_Global_Weighted <- UE_Countries %>%
+  filter(apply(UE_Countries[, 3:14], 1, function(x) all(!is.na(x)))) %>%  
+  group_by(Month) %>%
+  summarise(
+    Age15to24.Per = sum(Age15to24.Thou) / sum(Age15to24.Thou / Age15to24.Per), 
+    Age25above.Per = sum(Age25above.Thou) / sum(Age25above.Thou / Age25above.Per),
+    Female.Per = sum(Female.Thou) / sum(Female.Thou / Female.Per),
+    Male.Per = sum(Male.Thou) / sum(Male.Thou / Male.Per),
+    Total.Per = sum(Total.Thou) / sum(Total.Thou / Total.Per),
+    
+    Age15to24.Thou = mean(Age15to24.Thou, na.rm = TRUE),
+    Age25above.Thou = mean(Age25above.Thou, na.rm = TRUE),
+    Female.Thou = mean(Female.Thou, na.rm = TRUE),
+    Male.Thou = mean(Male.Thou, na.rm = TRUE),
+    Total.Thou = mean(Total.Thou, na.rm = TRUE)
+  )
+
+# Generate weighted global unemployment yearly
+UE_Global_Yearly <- UE_Global_Weighted %>% 
+  mutate(Year = year(Month)) %>%
+  group_by(Year) %>% 
+  summarize(across(where(is.numeric), mean)) #%>% 
+  #filter(Year >= 2000 & Year <= 2024)
+```
+
+### Unemployment Status in Colombia
+
+
+```{r Colombia, warning=FALSE, message=FALSE}
+## Unemployment Status in Colombia
+p1_PE <- ggplot(Colombia, aes(x = Month, y = Total.Thou)) +
+  geom_line(color = "blue", alpha = 1) +
+  labs(x = "", y = "Unemployment (Thousands)") 
+
+Colombia_LF <- Colombia %>% 
+  mutate(LF.Part = (Total.Thou / Total.Per) * 100) 
+
+p2_PE <- ggplot(Colombia_LF, aes(x = Month, y = LF.Part)) +
+  geom_line(color = "orange", alpha = 1) +
+  labs(x = "", y = "Laborforce Participation (Thousands)")
+
+p3_PE <- ggplot(Colombia, aes(x = Month, y = Total.Per)) +
+  geom_line(color = "red", alpha = 1) +
+  labs(x = "Year", y = "Unemployment Rate (%)") 
+
+grid.arrange(p1_PE, p2_PE, p3_PE, ncol = 3,
+             top = "Unemployment Status in Colombia")
+
+
+
+# Comparison of Unemployment Rate between Colombia and US
+UE_Comparison <- UE_Countries %>% 
+  filter(Country %in% c("Colombia", "United States of America")) %>% 
+  mutate(Month = as.Date(Month)) %>% 
+  filter(Month >= as.Date("2001-01-01") & Month <= as.Date("2024-12-01"))
+
+ggplot(UE_Comparison, aes(x = Month, y = Total.Per, color = Country)) +
+  geom_line(size = 0.8) +  
+  geom_point(size = 0.8, alpha = 0.7) + 
+  theme_gray(base_size = 14) +  
+  labs(title = "Unemployment Rate by Countries (2001-2024)",
+    x = "Year", y = "Unemployment Rate (%)", color = "Country") +
+  theme(plot.title = element_text(face = "bold", size = 16),
+    axis.title.y = element_text(size = 14), axis.text = element_text(size = 12),
+    legend.position = "right")
+
+# Comparison of Unemployment Rate by Age Group 
+PE1 <- ggplot(Colombia, aes(x = Month)) +
+  geom_line(aes(y = Age15to24.Per, color = "Age 15-24"), size = 0.6) +
+  geom_line(aes(y = Age25above.Per, color = "Age 25+"), size = 0.6) +
+  labs(title = "Unemployment Rate by Age Group",
+    x = "Year", y = "Colombia Unemployment Rate (%)", color = "Age Group") +
+  scale_color_manual(values = c("Age 15-24" = "blue", "Age 25+" = "red")) +
+  theme_gray(base_size = 12) +  
+  theme(plot.title = element_text(size = 14),
+    axis.title.x = element_text(size = 12), axis.title.y = element_text(size = 12),
+    axis.text = element_text(size = 12), legend.position = "bottom") 
+
+US1 <- ggplot(US, aes(x = Month)) +
+  geom_line(aes(y = Age15to24.Per, color = "Age 15-24"), size = 0.6) +
+  geom_line(aes(y = Age25above.Per, color = "Age 25+"), size = 0.6) +
+  labs(title = "",
+    x = "Year", y = "US Unemployment Rate (%)", color = "Age Group") +
+  scale_color_manual(values = c("Age 15-24" = "blue", "Age 25+" = "red")) +
+  theme_gray(base_size = 12) +  
+  theme(plot.title = element_text(size = 14),
+    axis.title.x = element_text(size = 12), axis.title.y = element_text(size = 12),
+    axis.text = element_text(size = 12), legend.position = "bottom")
+
+grid.arrange(PE1, US1, ncol = 2)
+
+# Comparison of Unemployment Rate by Sex Group 
+sPE1 <- ggplot(Colombia, aes(x = Month)) +
+  geom_line(aes(y = Female.Per, color = "Female"), size = 0.6) +
+  geom_line(aes(y = Male.Per, color = "Male"), size = 0.6) +
+  labs(title = "Unemployment Rate by Sex Group",
+    x = "Year", y = "Colombia Unemployment Rate (%)", color = "Sex Group") +
+  scale_color_manual(values = c("Female" = "blue", "Male" = "red")) +
+  theme_gray(base_size = 12) +  
+  theme(plot.title = element_text(size = 14),
+    axis.title.x = element_text(size = 12), axis.title.y = element_text(size = 12),
+    axis.text = element_text(size = 12), legend.position = "bottom") 
+
+sUS1 <- ggplot(US, aes(x = Month)) +
+  geom_line(aes(y = Female.Per, color = "Female"), size = 0.6) +
+  geom_line(aes(y = Male.Per, color = "Male"), size = 0.6) +
+  labs(title = "",
+    x = "Year", y = "US Unemployment Rate (%)", color = "Sex Group") +
+  scale_color_manual(values = c("Female" = "blue", "Male" = "red")) +
+  theme_gray(base_size = 12) +  
+  theme(plot.title = element_text(size = 14),
+    axis.title.x = element_text(size = 12), axis.title.y = element_text(size = 12),
+    axis.text = element_text(size = 12), legend.position = "bottom") 
+
+grid.arrange(sPE1, sUS1, ncol = 2)
+```
+
+# Innitial plot of Colombia as the perspective of unemployment
+
+```{r}
+Colombia_unemployment <- Colombia
+
+# Check for missing values
+summary(Colombia_unemployment)
+sum(is.na(Colombia_unemployment))
+
+
+# Check regularity of time index
+diff_date <- diff(Colombia_unemployment$Month)
+table(diff_date)  # There's one missing month.
+Colombia_unemployment$Month <- as.Date(Colombia_unemployment$Month)
+Colombia_LF$Month <- as.Date(Colombia_LF$Month)
+
+
+# Create full monthly sequence
+full_month_seq <- data.frame(Month = seq.Date(from = min(Colombia_unemployment$Month),to = max(Colombia_unemployment$Month),
+                                              by = "month"))
+
+# Join with original to find missing months
+missing_months <- full_month_seq %>%
+  anti_join(Colombia_unemployment, by = "Month")
+Colombia_LF <- full_month_seq %>%
+  left_join(Colombia_LF, by = "Month")
+
+print(missing_months)  # Missing month: 2006-07~2006-12, 6 months
+
+# Fill in missing months with NA
+Colombia_unemployment <- full_month_seq %>%
+  left_join(Colombia_unemployment, by = "Month")
+
+
+# Check for outliers visually
+boxplot(Colombia_unemployment$Total.Thou,
+        main = "Boxplot: Colombia AgeTotal.Thou",
+        horizontal = TRUE,
+        col = "lightblue")
+
+boxplot(Colombia_unemployment$Total.Per,
+        main = "Boxplot: Colombia Total Unemplyment Rate",
+        horizontal = TRUE,
+        col = "lightblue")
+
+boxplot(Colombia_LF$Total.Thou,
+        main = "Boxplot: Colombia AgeTotal.employment_Thou",
+        horizontal = TRUE,
+        col = "lightblue")
+
+
+
+# Convert to time series
+ts_Colombia_total_thou <- ts(Colombia_unemployment$Total.Thou,
+               start = c(2001, 7), 
+               frequency = 12)
+ts_Colombia_total_per <- ts(Colombia_unemployment$Total.Per,
+               start = c(2001, 7), 
+               frequency = 12)
+ts_Colombia_employment_thou <- ts(Colombia_LF$LF.Part,
+               start = c(2001, 7), 
+               frequency = 12)
+
+
+# interpolation of NA
+ts_Colombia_total_thou <- na_interpolation(ts_Colombia_total_thou, option = "linear")
+ts_Colombia_total_per <- na_interpolation(ts_Colombia_total_per, option = "linear")
+ts_Colombia_employment_thou <- na_interpolation(ts_Colombia_employment_thou, option = "linear")
+
+sum(is.na(ts_Colombia_total_thou))
+sum(is.na(ts_Colombia_total_per))
+sum(is.na(ts_Colombia_employment_thou))
+
+length(Colombia_unemployment$Month)           
+length(ts_Colombia_total_thou)                
+length(ts_Colombia_employment_thou)           
+length(ts_Colombia_total_per)                 
+
+
+
+# plotting the graph
+Colombia_plot_data <- data.frame(
+  Month = Colombia_unemployment$Month,
+  Unemployment_Level = as.numeric(ts_Colombia_total_thou),
+  Employment_Level = as.numeric(ts_Colombia_employment_thou),
+  Unemployment_Rate_Percent = as.numeric(ts_Colombia_total_per)
+)
+
+
+p <- ggplot(Colombia_plot_data, aes(x = Month)) +
+  geom_line(aes(y = Unemployment_Level*1.1, color = "Unemployment Level"), size = 1) +
+  geom_line(aes(y = Employment_Level, color = "Employment Level"), size = 1) +
+  geom_line(aes(y = Unemployment_Rate_Percent * 1000, color = "Unemployment Rate [%]"), size = 1) +
+  scale_y_continuous(
+    name = "Unemployment [Thousands]",
+    limits = c(0, 30000),
+    sec.axis = sec_axis(~./1000, name = "Unemployment Rate [%]", breaks = seq(0, 20, 5))
+  ) +
+  scale_color_manual(
+    name = "Legend",
+    values = c(
+      "Unemployment Level" = "darkblue",
+      "Employment Level" = "darkorange",
+      "Unemployment Rate [%]" = "gray"
+    )
+  ) +
+  labs(
+    title = "Colombia: Employment, Unemployment Count and Rate Over Time",
+    x = "Month"
+  ) +
+  theme_minimal()
+
+print(p)
+
+# Decompose the time series
+decomp_ts_Colombia_total_thou <- decompose(ts_Colombia_total_thou)
+plot(decomp_ts_Colombia_total_thou)
+decomp_ts_Colombia_total_per <- decompose(ts_Colombia_total_per)
+plot(decomp_ts_Colombia_total_per)
+decomp_ts_Colombia_employment_thou <- decompose(ts_Colombia_employment_thou)
+plot(decomp_ts_Colombia_employment_thou)
+
+# ACF and PACF plots
+par(mfrow = c(1, 2))
+Acf(ts_Colombia_total_thou, lag.max = 40, main = "ACF: Colombia AgeTotal.Thou")
+Pacf(ts_Colombia_total_thou, lag.max = 40, main = "PACF: Colombia AgeTotal.Thou")
+
+par(mfrow = c(1, 2))
+Acf(ts_Colombia_total_per, lag.max = 40, main = "ACF: Colombia AgeTotal.Thou")
+Pacf(ts_Colombia_total_per, lag.max = 40, main = "PACF: Colombia AgeTotal.Thou")
+
+par(mfrow = c(1, 2))
+Acf(ts_Colombia_employment_thou, lag.max = 40, main = "ACF: Colombia AgeTotal.Thou")
+Pacf(ts_Colombia_employment_thou, lag.max = 40, main = "PACF: Colombia AgeTotal.Thou")
+
+# Grubbs test for outliers
+grubbs.test(ts_Colombia_total_thou)
+grubbs.test(ts_Colombia_total_per)
+grubbs.test(ts_Colombia_employment_thou)
+```
+
+# Innitial plot of US as the perspective of the level of unemployment
+
+```{r}
+us_unemployment <- read_excel(
+  path="./Data/Raw/Final Project_data_20250403_R.xlsx", sheet = "US_unemployment", col_names = TRUE)
+
+# Check for missing values
+summary(us_unemployment)
+sum(is.na(us_unemployment))
+
+
+
+# 1. Filtering after 2001
+us_unemployment_filtered <- us_unemployment %>%
+  filter(Month >= as.Date("2001-01-01"))
+
+# 2. Plot
+ggplot(us_unemployment_filtered, aes(x = Month)) +
+  geom_line(aes(y = AgeTotal.Thou, color = "Unemployment Level"), size = 1) +
+  geom_line(aes(y = Employment_level, color = "Employment Level"), size = 1) +
+  geom_line(aes(y = AgeTotal.Per * 7500, color = "Unemployment Rate [%]"), size = 1) +
+  scale_y_continuous(
+    name = "Employment / Unemployment [Thousands]",
+    limits = c(0, 150000), 
+    sec.axis = sec_axis(~./7500, name = "Unemployment Rate [%]", breaks = seq(0, 20, 5))
+  ) +
+  scale_color_manual(
+    name = "Legend",
+    values = c(
+      "Unemployment Level" = "darkblue",
+      "Employment Level" = "darkorange",
+      "Unemployment Rate [%]" = "gray"
+    )
+  ) +
+  labs(
+    title = "US: Employment, Unemployment Count and Rate Since 2001",
+    x = "Month"
+  ) +
+  theme_minimal()
+
+
+
+# Check regularity of time index
+diff_date <- diff(us_unemployment$Month)
+table(diff_date)  # There's one missing month.
+us_unemployment$Month <- as.Date(us_unemployment$Month)
+
+
+# Create full monthly sequence
+full_month_seq <- data.frame(Month = seq.Date(from = min(us_unemployment$Month),to = max(us_unemployment$Month),
+                                              by = "month"))
+
+# Join with original to find missing months
+missing_months <- full_month_seq %>%
+  anti_join(us_unemployment, by = "Month")
+
+print(missing_months) # no NAs
+
+# Check for outliers visually
+boxplot(us_unemployment$AgeTotal.Thou,
+        main = "Boxplot: US AgeTotal.Thou",
+        horizontal = TRUE,
+        col = "lightblue")
+
+boxplot(us_unemployment$AgeTotal.Per,
+        main = "Boxplot: US AgeTotal.Thou",
+        horizontal = TRUE,
+        col = "lightblue")
+
+boxplot(us_unemployment$Employment_level,
+        main = "Boxplot: US AgeTotal.Thou",
+        horizontal = TRUE,
+        col = "lightblue")
+
+
+
+# Convert to time series
+ts_us_total_thou <- ts(us_unemployment$AgeTotal.Thou,
+               start = c(2001, 4), 
+               frequency = 12)
+ts_us_total_per <- ts(us_unemployment$AgeTotal.Per,
+               start = c(2001, 4), 
+               frequency = 12)
+ts_us_employment_thou <- ts(us_unemployment$Employment_level,
+               start = c(2001, 4), 
+               frequency = 12)
+
+# Decompose the time series
+decomp_ts_us_total_thou <- decompose(ts_us_total_thou)
+plot(decomp_ts_us_total_thou)
+decomp_ts_us_total_per <- decompose(ts_us_total_per)
+plot(decomp_ts_us_total_per)
+decomp_ts_us_employment_thou <- decompose(ts_us_employment_thou)
+plot(decomp_ts_us_employment_thou)
+
+# ACF and PACF plots
+par(mfrow = c(1, 2))
+Acf(ts_us_total_thou, lag.max = 40, main = "ACF: us AgeTotal.Thou")
+Pacf(ts_us_total_thou, lag.max = 40, main = "PACF: us AgeTotal.Thou")
+
+par(mfrow = c(1, 2))
+Acf(ts_us_total_per, lag.max = 40, main = "ACF: us AgeTotal.Thou")
+Pacf(ts_us_total_per, lag.max = 40, main = "PACF: us AgeTotal.Thou")
+
+par(mfrow = c(1, 2))
+Acf(ts_us_employment_thou, lag.max = 40, main = "ACF: us AgeTotal.Thou")
+Pacf(ts_us_employment_thou, lag.max = 40, main = "PACF: us AgeTotal.Thou")
+
+# Grubbs test for outliers
+grubbs.test(ts_us_total_thou)
+grubbs.test(ts_us_total_per)
+grubbs.test(ts_us_employment_thou)
+```
+
+
+### Summary Statistics of Colombia
+```{r Colombia summary stats table}
+## Colombia
+# Generate Summary Statistics
+summary_table <- Colombia %>%
+  select(-Month) %>%  # Exclude Month column
+  summarise(across(where(is.numeric), 
+                   list(Mean = ~ mean(.x),
+                        SD = ~ sd(.x),
+                        Min = ~ min(.x),
+                        Max = ~ max(.x),
+                        N = ~ sum(!is.na(.x))))) %>%
+  pivot_longer(everything(), names_to = c("Variable", ".value"), names_sep = "_") %>% 
+  gt() %>%
+  tab_header(title = "Summary Statistics of Unemployment Data in Colombia",
+    subtitle = "Monthly Data (2001-2024)") %>%
+  fmt_number(columns = 2:6, decimals = 2) %>%
+  cols_label(Variable = "Indicator", Mean = "Mean", SD = "Standard Deviation",
+    Min = "Min", Max = "Max", N = "Observations") %>%
+  tab_options(table.font.size = px(14),
+    heading.title.font.size = px(18), heading.subtitle.font.size = px(14))
+
+print(summary_table)   # This might not be executed during knitting.
+
+summary_table <- Colombia %>%
+  select(-Month) %>%
+  summarise(across(where(is.numeric), 
+                   list(Mean = ~ mean(.x),
+                        SD = ~ sd(.x),
+                        Min = ~ min(.x),
+                        Max = ~ max(.x),
+                        N = ~ sum(!is.na(.x))))) %>%
+  pivot_longer(everything(), names_to = c("Variable", ".value"), names_sep = "_")
+
+knitr::kable(summary_table, digits = 2, caption = "Summary Statistics of Unemployment Data in Colombia")
+
+
+# Check outliers 
+outlier(Colombia) 
+grubbs.test(Colombia$Age15to24.Thou) # This is an outlier. 
+grubbs.test(Colombia$Age25above.Thou) # This is an outlier. 
+grubbs.test(Colombia$Age15to24.Per) 
+grubbs.test(Colombia$Age25above.Per)
+grubbs.test(Colombia$Female.Thou) # This is an outlier. 
+grubbs.test(Colombia$Male.Thou) # This is an outlier. 
+grubbs.test(Colombia$Female.Per)
+grubbs.test(Colombia$Male.Per)
+grubbs.test(Colombia$Total.Thou) # This is an outlier. 
+grubbs.test(Colombia$Total.Per)
+
+# Check the box plot for total unemployment (for PPT)
+boxplot(Colombia$Total.Per,
+        main = "Boxplot: Colombia Unemployment Rate (%)",
+        horizontal = TRUE, 
+        col = "lightblue")
+
+# Plotting for total unemployment, ACF, PACF (for PPT)
+ts_Colombia_ppt <- ts(Colombia$Total.Per, start = c(2001, 1), frequency = 12)
+p1 <- autoplot(ts_Colombia_ppt) +
+  ggtitle("Colombia") +
+  ylab("Unemployment Rate (%)") +
+  xlab("Time")
+
+p2 <- ggAcf(ts_Colombia_ppt, lag.max = 40) +
+  ggtitle("ACF")
+
+p3 <- ggPacf(ts_Colombia_ppt, lag.max = 40) +
+  ggtitle("PACF")
+
+grid.arrange(p1, p2, p3, ncol = 3)
+
+
+# Find the row where Total.Per is the outlier (10.8%)
+outlier_row <- Colombia %>%
+  filter(Total.Per == max(Total.Per, na.rm = TRUE))
+
+print(outlier_row) # Highest Value is 2005-02-01. 
+```
+
+## Time Series Analysis for Colombia 
+### Step 1: Transform into time series and set training and testing windows for Colombia
+
+```{r}
+# Transform into time series
+# 201001~202412 : Because, there are 6 missing months before 2010 
+# and also 2010 January is a break in series.
+
+
+ts_Colombia <- ts(Colombia[,2:11],
+              start=c(year(Colombia$Month[1]), month(Colombia$Month[1])),
+              frequency = 12)
+
+# Set the period
+nobs = nrow(Colombia)
+n_for = 12
+
+# Create a subset for training purpose 
+ts_Colombia_train <- ts(Colombia[97:(nobs-n_for),2:11],
+                    start=c(2010, 1),end=c(2023,12),
+                    frequency = 12)
+#ts_Colombia_total <- window(ts_Colombia_total_per, start = c(2010, 1), end = c(2023, 12))
+
+head(ts_Colombia_train)
+tail(ts_Colombia_train)
+
+# Create a subset for testing purpose(2024)
+start_row = nobs - n_for + 1
+ts_Colombia_test <- ts(Colombia[(nobs-n_for+1):nobs,2:11],
+                   start=c(year(Colombia$Month[start_row]),
+                           month(Colombia$Month[start_row])), frequency = 12)
+
+head(ts_Colombia_test)
+tail(ts_Colombia_test)
+
+# Plots 
+train <- autoplot(ts_Colombia_train[,"Total.Per"]) + ylab("Unemployment Rate (%)") +
+  ggtitle("Training Window")
+test <- autoplot(ts_Colombia_test[,"Total.Per"]) + ylab("Unemployment Rate (%)") +
+  ggtitle("Testing Window")
+grid.arrange(train, test, ncol = 2)
+
+par(mfrow=c(1,2))
+  Acf(ts_Colombia_train[,"Total.Per"], lag=40, plot = TRUE, main = "")
+  Pacf(ts_Colombia_train[,"Total.Per"], lag=40, plot = TRUE, main = "")
+
+```
+
+### Step 2: Decompose the time series for Colombia
+```{r total.per decompose of Colombia, warning=FALSE, message=FALSE}
+# Decompose 
+decom_totalper_train <- decompose(ts_Colombia_train[,"Total.Per"])
+plot(decom_totalper_train)
+
+# Deseason 
+deseas_totalper_train <- seasadj(decom_totalper_train)  
+plot(deseas_totalper_train)
+
+# Run the tests on deseasoned series
+print(adf.test(deseas_totalper_train, alternative = "stationary")) # It is unit root. 
+summary(MannKendall(deseas_totalper_train)) # It has a decreasing trend.
+
+# Run the tests on original series 
+print(adf.test(ts_Colombia_train[,"Total.Per"], alternative = "stationary")) # It is stationary. 
+summary(SeasonalMannKendall(ts_Colombia_train[,"Total.Per"])) 
+summary(smk.test(ts_Colombia_train[,"Total.Per"])) # It has seasonality. 
+
+# Check for any differencing needed 
+print(ndiffs(ts_Colombia_train[,"Total.Per"]))
+print(ndiffs(deseas_totalper_train))
+```
+
+### Step 3: Test Time Series Models for Colombia
+```{r time series models Colombia, warning=FALSE, message=FALSE}
+# Seasonal Naive Model 
+SNAIVE_deseas_totalper <- snaive(ts_Colombia_train[,"Total.Per"], h=n_for)
+autoplot(SNAIVE_deseas_totalper)
+checkresiduals(SNAIVE_deseas_totalper)
+
+# Simple Moving Average Model
+SMA_deseas_totalper <- smooth::sma(y = deseas_totalper_train, h=n_for, 
+                                   holdout = FALSE, silent = FALSE) 
+summary(SMA_deseas_totalper)
+autoplot(SMA_deseas_totalper$fitted)
+checkresiduals(SMA_deseas_totalper) # Residuals are not iid.
+
+# Simple Exponential Smoothing Model
+SES_deseas_totalper = ses(y = deseas_totalper_train, h=n_for, 
+                          holdout = FALSE, silent = FALSE)  
+summary(SES_deseas_totalper)
+autoplot(SES_deseas_totalper)
+checkresiduals(SES_deseas_totalper) # Residuals are not iid. 
+
+# SARIMA Model
+SARIMA_totalper <- auto.arima(ts_Colombia_train[,"Total.Per"])
+print(SARIMA_totalper)
+
+SARIMA_forecast_totalper <- forecast(object = SARIMA_totalper, h=n_for)
+autoplot(SARIMA_forecast_totalper)
+checkresiduals(SARIMA_forecast_totalper) # Residuals are iid.
+
+# Deaseasoned ARIMA Model
+ARIMA_totalper <- auto.arima(deseas_totalper_train, max.D = 0, 
+                             max.P = 0, max.Q = 0)
+print(ARIMA_totalper)
+
+ARIMA_forecast_totalper <- forecast(object = ARIMA_totalper, h=n_for)
+autoplot(ARIMA_forecast_totalper)
+checkresiduals(ARIMA_forecast_totalper) # Residuals are iid.
+ 
+# STL + ETS Model
+ETS_totalper <-  stlf(ts_Colombia_train[,"Total.Per"],h=n_for)
+autoplot(ETS_totalper) 
+checkresiduals(ETS_totalper) # Residuals are not iid. 
+
+# ARIMA + FOURIER Model
+ARIMA_Four_fit_totalper <- auto.arima(ts_Colombia_train[,"Total.Per"], 
+                             seasonal=FALSE, lambda=0,
+                             xreg=fourier(ts_Colombia_train[,"Total.Per"], 
+                                          K=3))
+
+ARIMA_Four_for_totalper <- forecast(ARIMA_Four_fit_totalper,
+                           xreg=fourier(ts_Colombia_train[,"Total.Per"],
+                                        K=3, h=n_for),
+                           h=n_for) 
+
+autoplot(ARIMA_Four_for_totalper)
+checkresiduals(ARIMA_Four_for_totalper) # Better fit
+
+# TBATS Model 
+TBATS_fit_totalper <- tbats(ts_Colombia_train[,"Total.Per"])
+TBATS_for_totalper <- forecast(TBATS_fit_totalper, h = n_for)
+autoplot(TBATS_for_totalper) 
+checkresiduals(TBATS_fit_totalper) # Better fit
+
+# Neural Network Model 
+NN_fit_totalper <- nnetar(ts_Colombia_train[,"Total.Per"],
+                          p=3, P=0,
+                          xreg=fourier(ts_Colombia_train[,"Total.Per"], K=3))
+
+NN_for_totalper <- forecast(NN_fit_totalper, 
+                   h=n_for,
+                   xreg=fourier(ts_Colombia_train[,"Total.Per"], 
+                                          K=3,h=n_for))
+
+autoplot(NN_for_totalper)
+checkresiduals(NN_fit_totalper) # Residuals are not iid.
+
+## State Space Exponential Smoothing Model
+SSES_seas_totalper <- es(ts_Colombia_train[,"Total.Per"],
+                         model="ZZZ", h=n_for, holdout=FALSE)
+
+plot(SSES_seas_totalper$fitted, type = "l", col = "blue", main = "Fitted Values from SSES Model")
+lines(SSES_seas_totalper$forecast, col = "red")
+checkresiduals(SSES_seas_totalper) # Residuals are not iid.
+
+## State Space with BSM Model
+SS_seas_totalper <- StructTS(ts_Colombia_train[,"Total.Per"],
+                    type="BSM",fixed=c(0.01,0.001,0.1,NA)) 
+
+SS_for_totalper <- forecast(SS_seas_totalper,h=n_for)
+
+plot(SS_for_totalper)
+checkresiduals(SS_seas_totalper) # Residuals are not iid. 
+
+# Average of Arima with Fourier, NN and SARIMA
+nn_fc <- as.numeric(NN_for_totalper$mean)
+fourier_fc <- as.numeric(ARIMA_Four_for_totalper$mean)
+sarima_fc <- as.numeric(SARIMA_forecast_totalper$mean)
+
+# Compute average forecast
+avg_fc <- (nn_fc + fourier_fc + sarima_fc) / 3
+
+avg_fc_ts <- ts(avg_fc, start = c(2024, 1), frequency = 12)
+
+
+```
+
+### Step 4: Performance check for Colombia
+```{r accuracy Colombia, warning=FALSE, message=FALSE}
+# Check accuracy of the models
+SANIVE_tpscores <- accuracy(SNAIVE_deseas_totalper$mean,ts_Colombia_test[,"Total.Per"])  
+SMA_tpscores <- accuracy(SMA_deseas_totalper$forecast,ts_Colombia_test[,"Total.Per"])  
+SES_tpscores <- accuracy(SES_deseas_totalper$mean,ts_Colombia_test[,"Total.Per"])
+SARIMA_tpscores <- accuracy(SARIMA_forecast_totalper$mean,ts_Colombia_test[,"Total.Per"])
+ARIMA_tpscores <- accuracy(ARIMA_forecast_totalper$mean,ts_Colombia_test[,"Total.Per"])
+ETS_tpscores <- accuracy(ETS_totalper$mean,ts_Colombia_test[,"Total.Per"])
+ARIMA_Four_tpscores <- accuracy(ARIMA_Four_for_totalper$mean,ts_Colombia_test[,"Total.Per"])
+TBATS_tpscores <- accuracy(TBATS_for_totalper$mean,ts_Colombia_test[,"Total.Per"])
+NN_tpscores <- accuracy(NN_for_totalper$mean,ts_Colombia_test[,"Total.Per"])
+SSES_tpscores <- accuracy(SSES_seas_totalper$forecast,ts_Colombia_test[,"Total.Per"])
+SS_tpscores <- accuracy(SS_for_totalper$mean,ts_Colombia_test[,"Total.Per"])
+av_tpscores <-accuracy(avg_fc,ts_Colombia_test[,"Total.Per"])
+
+# Compare the matrix 
+tpscores <- as.data.frame(rbind(SANIVE_tpscores, SMA_tpscores, 
+                                SES_tpscores, SARIMA_tpscores, ARIMA_tpscores, 
+                                ETS_tpscores, ARIMA_Four_tpscores, TBATS_tpscores, 
+                                NN_tpscores, SSES_tpscores, SS_tpscores, av_tpscores)) %>%
+  mutate(Average = rowMeans(select(., RMSE, MAPE), na.rm = TRUE))
+
+row.names(tpscores) <- c("SNAIVE", "SMA", "SES", "SARIMA", "ARIMA",
+                       "ETS", "ARIMA_FOURIER", "TBATS", "NNETAR",
+                       "SSES", "BSM", "Average of 3")
+
+# Choose model with lowest error
+best_model_index_tp <- which.min(tpscores[,"Average"])
+cat("The best model by Average(RMSE$MAPE) is:", row.names(tpscores[best_model_index_tp,]))  
+
+# Create Tables 
+kbl(tpscores, 
+      caption = "Forecast Accuracy for Unemployment Rate (%) Data(Average Based on RMSE and MAPE Only)",
+      digits = array(5,ncol(tpscores))) %>%
+  kable_styling(full_width = FALSE, position = "center") %>%
+  #highlight model with lowest RMSE
+  kable_styling(latex_options="striped", stripe_index = which.min(tpscores[,"Average"]))
+
+# Plot everything together
+
+autoplot(ts_Colombia_test[,"Total.Per"], size=0.8) +
+  ylab("Unemployment Rate [%]") +
+  autolayer(SNAIVE_deseas_totalper, PI = FALSE, series = "SNAIVE", size = 0.8) + 
+  autolayer(SES_deseas_totalper, PI = FALSE, series = "SES", size = 0.8) +
+  autolayer(SARIMA_forecast_totalper, PI = FALSE, series = "SARIMA", size = 0.8) +
+  autolayer(ARIMA_forecast_totalper, PI = FALSE, series = "ARIMA", size = 0.8) +
+  autolayer(ETS_totalper, PI = FALSE, series = "ETS", size = 0.8) +
+  autolayer(ARIMA_Four_for_totalper, PI = FALSE, series = "ARIMA_FOURIER", size = 0.8) +
+  autolayer(TBATS_for_totalper, PI = FALSE, series = "TBATS", size = 0.8) +
+  autolayer(NN_for_totalper, PI = FALSE, series = "NNETAR", size = 0.8) +
+  autolayer(SS_for_totalper, PI = FALSE, series = "BSM", size = 0.8) +
+  autolayer(avg_fc_ts, PI = FALSE, series = "Average of 3", size = 0.8) +
+  scale_x_continuous(breaks = seq(2024 + 1/12, 2024 + 12/12, by = 1/12),
+                     labels = month.abb) +
+  guides(colour = guide_legend(title = "Forecast"))
+
+```
+
+### Step 5: Forecast for 2025 with the best three models for Colombia
+```{r forecast 2025, warning=FALSE, message=FALSE}
+
+n_full <- 12
+
+# --- 1. Extract forecasts from each model ---
+nn_fc      <- as.numeric(NN_for_totalper$mean)
+fourier_fc <- as.numeric(ARIMA_Four_for_totalper$mean)
+sarima_fc  <- as.numeric(SARIMA_forecast_totalper$mean)
+
+# --- 2. Average forecast ---
+avg_fc     <- (nn_fc + fourier_fc + sarima_fc) / 3
+
+# --- 3. Convert to time series object aligned with test set ---
+avg_fc_ts <- ts(avg_fc, start = start(ts_Colombia_test[,"Total.Per"]),
+                frequency = frequency(ts_Colombia_test[,"Total.Per"]))
+
+# --- 4. Create forecast date sequence ---
+forecast_months_2025 <- seq(as.Date("2025-01-01"), by = "month", length.out = n_full)
+
+# --- 5. Export average forecast to Excel ---
+write.xlsx(avg_fc_ts, "./Forecast_2025_Top3_Colombia.xlsx")
+
+# --- 6. Full plot: Actual (2010–2024) + Forecasts (2025) ---
+
+autoplot(ts_Colombia_fulltrain) +
+  autolayer(NN_for_totalper, series="Nueral Network with Fourier",PI=FALSE)+
+  autolayer(ARIMA_Four_for_totalper, series="ARIMA with Fourier",PI=FALSE)+
+  autolayer(SARIMA_forecast_totalper, series="SARIMA",PI=FALSE)+
+  ylab("Unemployment Rate (%)") + 
+  ggtitle("Forecasted Unemployment Rate (%) in Colombia")
+
+# --- 7. Zoom-in plot: 2024 actual + 2025 forecasts ---
+zoom_plot_df <- bind_rows(
+  tibble(
+    Month = seq(as.Date("2024-01-01"), by = "month", length.out = 12),
+    Value = window(ts_Colombia_total_per, start = c(2024, 1), end = c(2024, 12)),
+    Type = "Actual"
+  ),
+  tibble(Month = forecast_months_2025, Value = nn_fc,      Type = "NNETAR"),
+  tibble(Month = forecast_months_2025, Value = fourier_fc, Type = "Fourier+ARIMA"),
+  tibble(Month = forecast_months_2025, Value = sarima_fc,  Type = "SARIMA")
+)
+
+
+
+ggplot(zoom_plot_df, aes(x = Month, y = Value, color = Type)) +
+  geom_line(size = 0.7) +
+  scale_color_manual(values = c(
+    "Actual" = "black", "NNETAR" = "green",
+    "Fourier+ARIMA" = "red", "SARIMA" = "blue"
+  )) +
+  labs(title = "Forecast Comparison (2024–2025) — Top 3 Models",
+       y = "Unemployment Rate (%)", x = "Month", color = "Model") +
+  theme_minimal()
+
+
+```
+
+# Step 6: The average of 3 forecasts
+```{r}
+# --- 1. Extract predicted means ---
+nnetar_fc <- as.numeric(NN_for_totalper$mean)
+fourier_arima_fc <- as.numeric(ARIMA_Four_for_totalper$mean)
+sarima_fc <- as.numeric(SARIMA_forecast_totalper$mean)
+
+# Compute average forecast
+avg_forecast_colombia <- (nnetar_fc + fourier_arima_fc + sarima_fc) / 3
+
+# --- 2. Create forecast date index ---
+forecast_months_2025 <- seq(from = as.Date("2025-01-01"), by = "month", length.out = length(avg_forecast_colombia))
+
+# --- 3. Create forecast dataframe ---
+forecast_df <- tibble(
+  Month = forecast_months_2025,
+  NNETAR = nnetar_fc,
+  Fourier_ARIMA = fourier_arima_fc,
+  SARIMA = sarima_fc,
+  Avg_Forecast = avg_forecast_colombia
+)
+
+# --- 4. Export to Excel ---
+write.xlsx(forecast_df, "./Forecast_Average_Colombia.xlsx")
+
+# --- 5. Extract actuals from 2010 ---
+actual_colombia_from_2010 <- Colombia %>%
+  filter(Month >= as.Date("2010-01-01")) %>%
+  select(Month, Actual = Total.Per)
+
+# Combine with forecast
+plot_df_2010 <- bind_rows(
+  tibble(Month = actual_colombia_from_2010$Month,
+         Value = actual_colombia_from_2010$Actual,
+         Type = "Actual"),
+  tibble(Month = forecast_months_2025,
+         Value = avg_forecast_colombia,
+         Type = "Avg Forecast")
+)
+
+# --- 6. Plot actuals + forecast (2010–2025) ---
+ggplot(plot_df_2010, aes(x = Month, y = Value, color = Type, group = 1)) +
+  geom_line(size = 1) +
+  scale_color_manual(values = c("Actual" = "black", "Avg Forecast" = "steelblue")) +
+  labs(
+    title = "Average of Top 3 Forecast Results (Colombia)",
+    y = "Unemployment Rate (%)",
+    x = "Month",
+    color = "Legend"
+  ) +
+  theme_minimal()
+
+# --- 7. Extract actuals from 2022 ---
+actual_colombia_from_2022 <- Colombia %>%
+  filter(Month >= as.Date("2022-01-01")) %>%
+  select(Month, Actual = Total.Per)
+
+# Combine with forecast
+plot_df_2022 <- bind_rows(
+  tibble(Month = actual_colombia_from_2022$Month,
+         Value = actual_colombia_from_2022$Actual,
+         Type = "Actual"),
+  tibble(Month = forecast_months_2025,
+         Value = avg_forecast_colombia,
+         Type = "Avg Forecast")
+)
+
+# --- 8. Plot actuals + forecast (2022–2025) ---
+ggplot(plot_df_2022, aes(x = Month, y = Value, color = Type, group = 1)) +
+  geom_line(size = 1) +
+  scale_color_manual(values = c("Actual" = "black", "Avg Forecast" = "steelblue")) +
+  labs(
+    title = "Average of Top 3 Forecast Results (Colombia)",
+    y = "Unemployment Rate (%)",
+    x = "Month",
+    color = "Legend"
+  ) +
+  theme_minimal()
+
+
+```
+
+
+
+
+##  Replace outliers using tsclean()
+```{r}
+# Clean the Total.Per series using tsclean
+ts_Colombia_total_per_clean <- tsclean(ts_Colombia_total_per)
+
+
+# Plot original vs cleaned
+autoplot(cbind(Original = ts_Colombia_total_per, Cleaned = ts_Colombia_total_per_clean), size=0.7) +
+  labs(title = "Original vs Cleaned Unemployment Rate (Colombia)", y = "Rate (%)")
+
+# --- 1. ADF Test ---
+library(tseries)
+adf_result <- adf.test(ts_Colombia_total_per_clean, alternative = "stationary")
+print(adf_result)
+
+# --- 2. Boxplot  ---
+boxplot(ts_Colombia_total_per,
+        main = "Boxplot: Original Unemployment Rate (Colombia)",
+        col = "tomato", horizontal = TRUE)
+
+boxplot(ts_Colombia_total_per_clean,
+        main = "Boxplot: Cleaned Unemployment Rate (Colombia)",
+        col = "steelblue", horizontal = TRUE)
+
+# --- 3. Original, ACF, PACF Plot ---
+
+p1 <- autoplot(ts_Colombia_total_per, size = 0.8) +
+  labs(title = "Original Unemployment Rate", y = "Rate (%)")
+
+# ACF
+p2 <- ggAcf(ts_Colombia_total_per, lag.max = 40) +
+  labs(title = "ACF: Original Series")
+
+# PACF
+p3 <- ggPacf(ts_Colombia_total_per, lag.max = 40) +
+  labs(title = "PACF: Original Series")
+
+# Arrange in a grid
+grid.arrange(p1, p2, p3, ncol = 3)
+
+
+```
+
+## Step 2: Decompose the cleaned series
+```{r}
+# Decompose cleaned unemployment rate series
+decom_clean <- decompose(ts_Colombia_total_per_clean)
+autoplot(decom_clean)
+
+# Deseasonalize
+deseas_clean <- seasadj(decom_clean)
+autoplot(deseas_clean)
+
+```
+
+## Step 3: Fit Time Series Models (using cleaned data only)
+```{r}
+
+# --- Split cleaned series into training and testing sets ---
+n_for <- 12  # Forecast horizon
+ts_train <- window(ts_Colombia_total_per_clean, start = c(2010,1), end = c(2023, 12))
+ts_test <- window(ts_Colombia_total_per_clean, start = c(2024, 1))
+
+# --- Decomposition and Deseasonalization ---
+decom <- decompose(ts_train)
+deseas_train <- seasadj(decom)
+
+# --- 1. Seasonal Naive Model ---
+SNAIVE_deseas <- snaive(ts_train, h = n_for)
+autoplot(SNAIVE_deseas)
+checkresiduals(SNAIVE_deseas)
+
+# --- 2. Simple Moving Average Model ---
+SMA_deseas <- smooth::sma(y = deseas_train, h = n_for, holdout = FALSE, silent = FALSE)
+summary(SMA_deseas)
+autoplot(SMA_deseas$fitted)
+checkresiduals(SMA_deseas)  # Not iid
+
+# --- 3. Simple Exponential Smoothing ---
+SES_deseas <- ses(y = deseas_train, h = n_for, holdout = FALSE, silent = FALSE)
+summary(SES_deseas)
+autoplot(SES_deseas)
+checkresiduals(SES_deseas)  # Not iid
+
+# --- 4. SARIMA Model ---
+SARIMA_model <- auto.arima(ts_train)
+print(SARIMA_model)
+SARIMA_forecast <- forecast(SARIMA_model, h = n_for)
+autoplot(SARIMA_forecast)
+checkresiduals(SARIMA_forecast)  # iid
+
+# --- 5. ARIMA on Deseasonalized Data ---
+ARIMA_model <- auto.arima(deseas_train, max.D = 0, max.P = 0, max.Q = 0)
+print(ARIMA_model)
+ARIMA_forecast <- forecast(ARIMA_model, h = n_for)
+autoplot(ARIMA_forecast)
+checkresiduals(ARIMA_forecast)  # iid
+
+# --- 6. STL + ETS Model ---
+ETS_model <- stlf(ts_train, h = n_for)
+autoplot(ETS_model)
+checkresiduals(ETS_model)  # Not iid
+
+# --- 7. ARIMA + Fourier Model ---
+K <- 3
+xreg_train <- fourier(ts_train, K = K)
+xreg_future <- fourier(ts_train, K = K, h = n_for)
+ARIMA_Fourier_model <- auto.arima(ts_train, seasonal = FALSE, lambda = 0, xreg = xreg_train)
+ARIMA_Fourier_forecast <- forecast(ARIMA_Fourier_model, xreg = xreg_future, h = n_for)
+autoplot(ARIMA_Fourier_forecast)
+checkresiduals(ARIMA_Fourier_forecast)
+
+# --- 8. TBATS Model ---
+TBATS_model <- tbats(ts_train)
+TBATS_forecast <- forecast(TBATS_model, h = n_for)
+autoplot(TBATS_forecast)
+checkresiduals(TBATS_model)
+
+# --- 9. Neural Network Model ---
+NN_model <- nnetar(ts_train, p = 3, P = 0, xreg = xreg_train)
+NN_forecast <- forecast(NN_model, h = n_for, xreg = xreg_future)
+autoplot(NN_forecast)
+checkresiduals(NN_model)
+
+# --- 10. State Space Exponential Smoothing Model ---
+SSES_model <- es(ts_train, model = "ZZZ", h = n_for, holdout = FALSE)
+plot(SSES_model$fitted, type = "l", col = "blue", main = "SSES Fitted Values")
+lines(SSES_model$forecast, col = "red")
+checkresiduals(SSES_model)
+
+# --- 11. Structural Time Series Model with BSM ---
+SS_model <- StructTS(ts_train, type = "BSM", fixed = c(0.01, 0.001, 0.1, NA))
+SS_forecast <- forecast(SS_model, h = n_for)
+plot(SS_forecast)
+checkresiduals(SS_model)
+
+# --- 12. Average Forecast of 3 Models (NNETAR, SSES, and TBATS) ---
+
+# Extract forecasted values from each model
+nn_fc     <- as.numeric(NN_forecast$mean)                # from nnetar()
+sses_fc   <- as.numeric(SSES_model$forecast)             # from es()
+tbats_fc  <- as.numeric(TBATS_forecast$mean)             # from tbats()
+
+# Compute average of the 3 selected models
+avg_fc <- (nn_fc + sses_fc + tbats_fc) / 3
+
+# Convert to time series object for plotting and accuracy checking
+avg_fc_ts <- ts(avg_fc, start = c(2024, 1), frequency = 12)
+
+
+```
+
+# Step 4: Accuracy Comparison for All Models (Cleaned Data)
+
+```{r}
+
+# Accuracy comparison against test data
+SNAIVE_acc <- accuracy(SNAIVE_deseas$mean, ts_test)
+SMA_acc    <- accuracy(SMA_deseas$forecast, ts_test)
+SES_acc    <- accuracy(SES_deseas$mean, ts_test)
+SARIMA_acc <- accuracy(SARIMA_forecast$mean, ts_test)
+ARIMA_acc  <- accuracy(ARIMA_forecast$mean, ts_test)
+ETS_acc    <- accuracy(ETS_model$mean, ts_test)
+ARIMA_Fourier_acc <- accuracy(ARIMA_Fourier_forecast$mean, ts_test)
+TBATS_acc  <- accuracy(TBATS_forecast$mean, ts_test)
+NN_acc     <- accuracy(NN_forecast$mean, ts_test)
+SSES_acc   <- accuracy(SSES_model$forecast, ts_test)
+SS_acc     <- accuracy(SS_forecast$mean, ts_test)
+AVG_acc    <- accuracy(avg_fc_ts, ts_test)
+
+# Combine into one table
+acc_table <- as.data.frame(rbind(
+  SNAIVE_acc, SMA_acc, SES_acc, SARIMA_acc, ARIMA_acc,
+  ETS_acc, ARIMA_Fourier_acc, TBATS_acc, NN_acc,
+  SSES_acc, SS_acc, AVG_acc
+)) %>%
+  mutate(Average = rowMeans(select(., RMSE, MAPE), na.rm = TRUE))
+
+row.names(acc_table) <- c("SNAIVE", "SMA", "SES", "SARIMA", "ARIMA",
+                          "ETS", "ARIMA + Fourier", "TBATS", "NNETAR",
+                          "SSES", "BSM", "Average of 3")
+
+# Identify best model
+best_model_idx <- which.min(acc_table$Average)
+cat("✅ Best model based on Average(RMSE, MAPE):", rownames(acc_table)[best_model_idx], "\n")
+
+# Display accuracy table
+kbl(acc_table,
+    caption = "Forecast Accuracy on Cleaned Data (Average Based on RMSE and MAPE Only)",
+    digits = 3) %>%
+  kable_styling(full_width = FALSE, position = "center") %>%
+  kable_styling(latex_options = "striped", stripe_index = best_model_idx)
+
+
+# Plot all forecasted series vs test data
+autoplot(ts_test, size = 1) +
+  ylab("Unemployment Rate [%]") +
+  ggtitle("Forecast Comparison on Cleaned Data (2024)") +
+  autolayer(SNAIVE_deseas, PI = FALSE, series = "SNAIVE") +
+  autolayer(SES_deseas, PI = FALSE, series = "SES") +
+  autolayer(SARIMA_forecast, PI = FALSE, series = "SARIMA") +
+  autolayer(ARIMA_forecast, PI = FALSE, series = "ARIMA") +
+  autolayer(ETS_model, PI = FALSE, series = "ETS") +
+  autolayer(ARIMA_Fourier_forecast, PI = FALSE, series = "ARIMA + Fourier") +
+  autolayer(TBATS_forecast, PI = FALSE, series = "TBATS") +
+  autolayer(NN_forecast, PI = FALSE, series = "NNETAR") +
+  autolayer(SS_forecast, PI = FALSE, series = "BSM") +
+  autolayer(avg_fc_ts, PI = FALSE, series = "Average of 3") +
+  scale_x_continuous(breaks = seq(2024 + 1/12, 2024 + 12/12, by = 1/12),
+                     labels = month.abb) +
+  guides(colour = guide_legend(title = "Model"))
+
+
+```
+
+# Step 5: Forecast for 2025 using NNETAR, SSES, and TBATS
+
+```{r}
+# --- Forecast horizon for 2025 ---
+n_for_2025 <- 12
+
+# --- Refit the top 3 models on full cleaned data (up to 2024-12) ---
+ts_full_clean <- ts_Colombia_total_per_clean
+
+# 1. NNETAR + Fourier terms
+K <- 3
+xreg_full <- fourier(ts_full_clean, K = K)
+xreg_future <- fourier(ts_full_clean, K = K, h = n_for_2025)
+
+NN_full_fit <- nnetar(ts_full_clean, p = 3, P = 0, xreg = xreg_full)
+NN_forecast_2025 <- forecast(NN_full_fit, h = n_for_2025, xreg = xreg_future)
+
+# 2. SSES
+SSES_full_fit <- es(ts_full_clean, model = "ZZZ", h = n_for_2025, holdout = FALSE)
+SSES_forecast_2025 <- SSES_full_fit$forecast  # Numeric vector
+
+# 3. TBATS
+TBATS_full_fit <- tbats(ts_full_clean)
+TBATS_forecast_2025 <- forecast(TBATS_full_fit, h = n_for_2025)
+
+# --- Combine point forecasts ---
+nn_vals <- as.numeric(NN_forecast_2025$mean)
+sses_vals <- as.numeric(SSES_forecast_2025)
+tbats_vals <- as.numeric(TBATS_forecast_2025$mean)
+
+# Compute simple average
+avg_forecast_2025 <- (nn_vals + sses_vals + tbats_vals) / 3
+mean(avg_forecast_2025)
+
+# --- Build forecast date sequence for 2025 ---
+forecast_months_2025 <- seq(as.Date("2025-01-01"), by = "month", length.out = n_for_2025)
+
+# --- Create forecast dataframe ---
+forecast_df_2025 <- tibble(
+  Month = forecast_months_2025,
+  NNETAR = nn_vals,
+  SSES = sses_vals,
+  TBATS = tbats_vals,
+  Average = avg_forecast_2025
+)
+
+# --- Export forecast to Excel ---
+write.xlsx(forecast_df_2025, "./Forecast_2025_Top3_Colombia.xlsx")
+
+# 1. Combine actual with each model forecast
+full_plot_df_models <- bind_rows(
+  tibble(
+    Month = seq(as.Date("2001-01-01"), by = "month", length.out = length(ts_full_clean)),
+    Value = as.numeric(ts_full_clean),
+    Type = "Actual"
+  ),
+  tibble(Month = forecast_months_2025, Value = nn_vals,   Type = "NNETAR"),
+  tibble(Month = forecast_months_2025, Value = sses_vals, Type = "SSES"),
+  tibble(Month = forecast_months_2025, Value = tbats_vals,Type = "TBATS")
+)
+
+ggplot(full_plot_df_models, aes(x = Month, y = Value, color = Type)) +
+  geom_line(size = 1) +
+  scale_color_manual(values = c(
+    "Actual" = "black", "NNETAR" = "blue",
+    "SSES" = "brown", "TBATS" = "green"
+  )) +
+  labs(title = "Colombia Unemployment Rate with Forecasts (2001–2025)",
+       y = "Unemployment Rate (%)", x = "Month", color = "Model") +
+  theme_minimal()
+
+
+# 2. Zoomed-in view (2024 actual + 2025 forecast by 3 models)
+zoom_plot_df <- bind_rows(
+  tibble(
+    Month = seq(as.Date("2024-01-01"), by = "month", length.out = 12),
+    Value = tail(ts_full_clean, 12),
+    Type = "Actual"
+  ),
+  tibble(Month = forecast_months_2025, Value = nn_vals,   Type = "NNETAR"),
+  tibble(Month = forecast_months_2025, Value = sses_vals, Type = "SSES"),
+  tibble(Month = forecast_months_2025, Value = tbats_vals,Type = "TBATS")
+)
+
+ggplot(zoom_plot_df, aes(x = Month, y = Value, color = Type)) +
+  geom_line(size = 1) +
+  scale_color_manual(values = c("Actual" = "black", "NNETAR" = "blue",
+                                "SSES" = "brown", "TBATS" = "green")) +
+  labs(title = "Forecast Comparison (2024–2025) — Top 3 Models",
+       y = "Unemployment Rate (%)", x = "Month", color = "Legend") +
+  theme_minimal()
+
+
+
+# --- Plot forecast vs actuals from recent years ---
+Colombia_recent <- data.frame(
+  Month = seq(as.Date("2020-01-01"), by = "month", length.out = length(window(ts_full_clean, start = c(2020,1)))),
+  Actual = as.numeric(window(ts_full_clean, start = c(2020, 1)))
+)
+
+
+
+plot_df <- bind_rows(
+  Colombia_recent %>%
+    mutate(Type = "Actual") %>%
+    rename(Value = Actual),
+  forecast_df_2025 %>%
+    select(Month, Value = Average) %>%
+    mutate(Type = "Forecast")
+)
+
+ggplot(plot_df, aes(x = Month, y = Value, color = Type, group=1)) +
+  geom_line(size = 1) +
+  scale_color_manual(values = c("Actual" = "black", "Forecast" = "steelblue")) +
+  labs(title = "Colombia Unemployment Rate Forecast for 2025 (Top 3 Model Average)",
+       y = "Unemployment Rate (%)", x = "Month", color = "Legend") +
+  theme_minimal()
+
+```
+
