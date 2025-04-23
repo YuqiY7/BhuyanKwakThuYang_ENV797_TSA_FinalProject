@@ -1,7 +1,8 @@
 ---
-title: "Comparative Unemployment Forecasting: US and Colombia"
-author: "Mazhar Zuman"
-date: "Spring 2025"
+title: "Forecasting Unemployment Trends: A Comparative Time Series Analysis of Colombia
+  and the United States"
+author: "Aye Nyein Thu, Mazhar Bhuyan, Yuqi Yang, Jisup Kwak"
+date: "`r Sys.Date()`"
 output:
   pdf_document:
     toc: true
@@ -481,5 +482,5 @@ The decomposed unemployment series for both the US and Colombia (after outlier r
 
 The training datasets for both the US and Colombia were constructed by transforming the monthly unemployment percentage into time series objects, excluding the most recent 12 months which were reserved for testing. For the US, data from 2001 to 2023 was used, while Colombia's training period covered 2010 to 2023 to ensure continuity after handling missing and outlier values. Deseasonalization and differencing were applied where necessary to stabilize the series and meet stationarity assumptions before model fitting.
 
-
+## 5  Colombia 
 
