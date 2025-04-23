@@ -1,0 +1,485 @@
+---
+title: "Comparative Unemployment Forecasting: US and Colombia"
+author: "Mazhar Zuman"
+date: "Spring 2025"
+output:
+  pdf_document:
+    toc: true
+    toc_depth: 2
+    number_sections: true
+    fig_caption: true
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r global-options, include=FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE,
+  warning = FALSE,
+  message = FALSE
+)
+library(here)
+```
+
+## 1. Introduction, Motivation, Relevance, and Objectives
+
+Unemployment remains one of the most visible and impactful indicators of economic well-being, directly shaping the lives of citizens and the priorities of governments. This report provides a comparative analysis of unemployment rates in the United States and Colombia, offering insight into how economic shocks and labor market structures influence short-term employment outcomes.
+
+The United States, with its deep capital markets and relatively flexible labor regulations, often exhibits smooth unemployment cycles responsive to monetary policy. In contrast, Colombia faces more structural unemployment challenges, including higher informality and vulnerability to global commodity price swings.
+
+From a development policy perspective, analyzing and forecasting these trends can inform interventions in education, training, and employment services. This analysis leverages publicly available ILO datasets and advanced time series models to forecast future labor market trajectories and highlight structural contrasts between the two economies.
+
+**The main objectives of the report are:**
+
+- To visualize and describe the historical unemployment trends in the US and Colombia
+- To detect and treat anomalies such as missing values and outliers
+- To compare the forecasting performance of multiple time series models
+- To produce robust 12-month forecasts using the best-performing model(s)
+
+```{r load_libraries, echo=FALSE}
+# Load Libraries
+library(readxl)
+library(openxlsx)
+library(writexl)
+library(dplyr)
+library(lubridate)
+library(ggplot2)
+library(cowplot)
+library(forecast)
+library(Kendall)
+library(tseries)
+library(outliers)
+library(tidyverse)
+library(smooth)
+library(trend)
+library(kableExtra)
+library(tidyr)
+library(gt)
+library(gridExtra)
+library(zoo)
+library(imputeTS)
+```
+
+## 2. Data Description and Preprocessing
+
+The dataset used in this study is sourced from the International Labour Organization (ILO) and contains monthly unemployment data for the United States and Colombia, segmented by sex and age group. To conduct a comparative and consistent analysis, we have constructed a unified time series using the age-group data by summing unemployment counts and calculating a weighted average percentage.
+
+Since percentages are normalized and directly comparable across countries and time, the main variable used for forecasting is the **total unemployment percentage (Total.Per)**. All data were checked for missing values and structural inconsistencies before modeling.
+
+
+```{r import_and_process_data, echo=FALSE, warning=FALSE, message=FALSE}
+UEAge.Thou <- read_excel(here::here("Data", "Raw", "UE_Age(Thousands).xlsx"), sheet = "Sheet1", col_names = TRUE)
+UEAge.Thou_Processed <- UEAge.Thou %>%
+  mutate(Month = ym(sub("M", "-", Month)),
+         Age15to24.Thou = as.numeric(`15-24`),
+         Age25above.Thou = as.numeric(`25+`),
+         AgeTotal.Thou = as.numeric(`15+`)) %>%
+  rename(Country = "Reference area") %>%
+  select(Country, Month, Age15to24.Thou, Age25above.Thou, AgeTotal.Thou) %>%
+  arrange(Country, Month)
+
+UEAge.Per <- read_excel(here::here("Data", "Raw", "UE_Age(%).xlsx"), sheet = "Sheet1", col_names = TRUE)
+UEAge.Per_Processed <- UEAge.Per %>%
+  mutate(Month = ym(sub("M", "-", Month)),
+         Age15to24.Per = as.numeric(`15-24`),
+         Age25above.Per = as.numeric(`25+`),
+         AgeTotal.Per = as.numeric(`15+`)) %>%
+  rename(Country = "Reference area") %>%
+  select(Country, Month, Age15to24.Per, Age25above.Per, AgeTotal.Per) %>%
+  arrange(Country, Month)
+
+UEGender.Thou <- read_excel(here::here("Data", "Raw", "UE_Gender(Thousands).xlsx"), sheet = "Sheet1", col_names = TRUE)
+UEGender.Thou_Processed <- UEGender.Thou %>%
+  mutate(Month = ym(sub("M", "-", Month)),
+         Female.Thou = as.numeric(Female),
+         Male.Thou = as.numeric(Male),
+         Total.Thou = as.numeric(Total)) %>%
+  rename(Country = "Reference area") %>%
+  select(Country, Month, Female.Thou, Male.Thou, Total.Thou) %>%
+  arrange(Country, Month)
+
+UEGender.Per <- read_excel(here::here("Data", "Raw", "UE_Gender(%).xlsx"), sheet = "Sheet1", col_names = TRUE)
+UEGender.Per_Processed <- UEGender.Per %>%
+  mutate(Month = ym(sub("M", "-", Month)),
+         Female.Per = as.numeric(Female),
+         Male.Per = as.numeric(Male),
+         Total.Per = as.numeric(Total)) %>%
+  rename(Country = "Reference area") %>%
+  select(Country, Month, Female.Per, Male.Per, Total.Per) %>%
+  arrange(Country, Month)
+
+UE_Countries <- UEAge.Thou_Processed %>%
+  left_join(UEAge.Per_Processed, by = c("Country", "Month")) %>%
+  left_join(UEGender.Thou_Processed, by = c("Country", "Month")) %>%
+  left_join(UEGender.Per_Processed, by = c("Country", "Month"))
+
+Colombia <- UE_Countries %>%
+  filter(Country == "Colombia") %>%
+  select(-Country, AgeTotal.Per, AgeTotal.Thou) %>%
+  select(Month, Age15to24.Per, Age25above.Per, Female.Per, Male.Per,
+         Total.Per, Age15to24.Thou, Age25above.Thou, Female.Thou, Male.Thou,
+         Total.Thou)
+
+US <- UE_Countries %>%
+  filter(Country == "United States of America",
+         Month >= as.Date("2001-01-01") & Month <= as.Date("2024-12-01")) %>%
+  select(-Country, AgeTotal.Per, AgeTotal.Thou) %>%
+  select(Month, Age15to24.Per, Age25above.Per, Female.Per, Male.Per,
+         Total.Per, Age15to24.Thou, Age25above.Thou, Female.Thou, Male.Thou,
+         Total.Thou)
+
+# Define ts_Colombia_train and ts_Colombia_train_out BEFORE using them
+ts_Colombia_train <- ts(
+  Colombia %>% filter(Month >= as.Date("2010-01-01")) %>% pull(Total.Per),
+  start = c(2010, 1), frequency = 12
+)
+
+q1 <- quantile(ts_Colombia_train, 0.25, na.rm = TRUE)
+q3 <- quantile(ts_Colombia_train, 0.75, na.rm = TRUE)
+iqr <- q3 - q1
+lower_bound <- q1 - 1.5 * iqr
+upper_bound <- q3 + 1.5 * iqr
+
+outliers <- which(ts_Colombia_train < lower_bound | ts_Colombia_train > upper_bound)
+ts_Colombia_train_out <- ts_Colombia_train
+
+# Replace outliers and interpolate
+if (length(outliers) > 0) {
+  ts_Colombia_train_out[outliers] <- NA
+  ts_Colombia_train_out <- na.interp(ts_Colombia_train_out)
+}
+```
+
+```{r summary_statistics_table_pdf, results='asis', echo=FALSE}
+library(kableExtra)
+
+# US summary
+tableUS <- US %>%
+  select(-Month) %>%
+  summarise(across(where(is.numeric), 
+                   list(Mean = ~ mean(.x),
+                        SD = ~ sd(.x),
+                        Min = ~ min(.x),
+                        Max = ~ max(.x),
+                        N = ~ sum(!is.na(.x))))) %>%
+  pivot_longer(everything(), names_to = c("Variable", ".value"), names_sep = "_")
+
+# Colombia summary
+tableColombia <- Colombia %>%
+  select(-Month) %>%
+  summarise(across(where(is.numeric), 
+                   list(Mean = ~ mean(.x),
+                        SD = ~ sd(.x),
+                        Min = ~ min(.x),
+                        Max = ~ max(.x),
+                        N = ~ sum(!is.na(.x))))) %>%
+  pivot_longer(everything(), names_to = c("Variable", ".value"), names_sep = "_")
+
+# Merge both tables into one
+combined_table <- cbind(
+  tableUS,
+  tableColombia[, -1]  # remove duplicate 'Variable' column from Colombia
+)
+
+colnames(combined_table) <- c("Variable", 
+                              "US_Mean", "US_SD", "US_Min", "US_Max", "US_N",
+                              "Col_Mean", "Col_SD", "Col_Min", "Col_Max", "Col_N")
+
+kbl(combined_table, format = "latex", booktabs = TRUE, align = "lrrrrrrrrrr",
+    caption = "Summary Statistics: United States and Colombia") %>%
+  add_header_above(c(" " = 1, "United States" = 5, "Colombia" = 5)) %>%
+  kable_styling(font_size = 7, full_width = FALSE, position = "center", latex_options = c("hold_position"))
+```
+
+
+```{r global_national_comparison, echo=FALSE, fig.width=10, fig.height=5, fig.cap="Figure: Global Weighted Average vs US and Colombia Unemployment Trends"}
+# Compute weighted average unemployment (proxy weight = average Total.Thou per country)
+country_weights <- UE_Countries %>%
+  group_by(Country) %>%
+  summarize(weight = mean(Total.Thou, na.rm = TRUE))
+
+UE_weighted <- UE_Countries %>%
+  filter(!is.na(Total.Per)) %>%
+  left_join(country_weights, by = "Country") %>%
+  mutate(weighted_ue = Total.Per * weight)
+
+global_ts <- UE_weighted %>%
+  group_by(Month) %>%
+  summarize(global_unemployment = sum(weighted_ue, na.rm = TRUE)/sum(weight, na.rm = TRUE))
+
+global_ts$Country <- "Global Weighted"
+
+compare_df <- bind_rows(
+  global_ts %>% rename(Total.Per = global_unemployment),
+  US %>% select(Month, Total.Per) %>% mutate(Country = "US"),
+  Colombia %>% select(Month, Total.Per) %>% mutate(Country = "Colombia")
+)
+
+p_global <- ggplot(compare_df, aes(x = Month, y = Total.Per, color = Country)) +
+  geom_line(size = 0.8) +
+  labs(title = "Unemployment Trends: Global vs Country-Specific", y = "Unemployment Rate (%)", x = NULL) +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))+
+  theme(legend.position = "bottom")
+
+print(p_global)
+```
+
+Unemployment rates across the globe have seen significant fluctuations over the decades, often reflecting the impact of global economic crises, policy shifts, and technological change. Historically, an unemployment rate of around 4% is often regarded as full employment, meaning most individuals willing and able to work can find jobs. The global plot shows that many economies experienced sharp spikes during major recessions (e.g., 2008) and more recently during the COVID-19 pandemic in 2020.
+
+However, what’s striking is the rapid recovery of unemployment rates post-COVID in many regions. As reflected in the global and country-level panels, the US shows a pronounced spike in 2020 followed by a fast recovery, thanks to aggressive fiscal and monetary responses. Colombia, while also experiencing a peak, exhibits greater volatility and slower normalization, likely due to structural vulnerabilities such as labor informality and limited social insurance coverage.
+
+These plots collectively set the stage for understanding the differences in labor market resilience between a high-income country and a developing one — an essential motivation for this forecasting exercise.
+
+During initial exploration, Colombia's unemployment series exhibited irregular seasonal patterns and nonlinear shifts, suggesting the presence of structural outliers. As part of preprocessing, we applied an outlier detection method (IQR-based) and tested both the original and the cleaned series. Visual inspection and model diagnostics showed that the cleaned series led to more stable and interpretable forecasts.
+
+## 3. Outlier Detection and Pre-Forecast Diagnostics for Colombia
+
+```{r outlier_series_colombia, echo=FALSE, fig.width=10, fig.height=4, fig.cap="Figure: Original vs Outlier-Removed Series for Colombia (Total Unemployment Percentage)"}
+
+original_series <- ts_Colombia_train
+cleaned_series <- ts_Colombia_train_out
+
+df_compare <- data.frame(
+  Month = time(original_series),
+  Original = as.numeric(original_series),
+  Cleaned = as.numeric(cleaned_series)
+) %>%
+  drop_na()
+
+ggplot(df_compare, aes(x = Month)) +
+  geom_line(aes(y = Original, color = "Original"), size = 0.8, alpha = 0.6) +
+  geom_line(aes(y = Cleaned, color = "Outlier-Removed"), size = 0.8, linetype = "dashed") +
+  labs(title = "Colombia Unemployment: Original vs Outlier-Removed Series",
+       x = "Time", y = "Unemployment Rate (%)") +
+  scale_color_manual(values = c("Original" = "brown", "Outlier-Removed" = "purple")) +
+  theme_minimal()+
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+```
+
+```{r decomposition_adf_tests, echo=FALSE, results='hide', fig.width=8, fig.height=3.5}
+# Decomposition and stationarity tests
+stl_colombia <- stl(ts_Colombia_train_out, s.window = "periodic")
+autoplot(stl_colombia) +
+  ggtitle("STL Decomposition of Cleaned Colombia Series")
+
+adf_result <- adf.test(ts_Colombia_train_out)
+df_temp <- data.frame(Month = time(ts_Colombia_train_out),
+                      Value = as.numeric(ts_Colombia_train_out))
+df_temp$MonthNum <- cycle(ts_Colombia_train_out)
+kruskal.test(Value ~ MonthNum, data = df_temp)
+SMK_test <- Kendall::SeasonalMannKendall(ts_Colombia_train_out)
+```
+
+```{r outlier_checks, echo=FALSE, results='hide'}
+# Outlier tests and diagnostics
+outlier(US) 
+grubbs.test(US$Age15to24.Thou) 
+grubbs.test(US$Age25above.Thou) 
+grubbs.test(US$Age15to24.Per) 
+grubbs.test(US$Age25above.Per) 
+grubbs.test(US$Female.Thou) 
+grubbs.test(US$Male.Thou) 
+grubbs.test(US$Female.Per) 
+grubbs.test(US$Male.Per) 
+grubbs.test(US$Total.Thou) 
+grubbs.test(US$Total.Per) 
+
+# Boxplot for Total.Per
+#boxplot(US$Total.Per,
+#       main = "Boxplot: US Unemployment Rate (%)",
+#     col = "lightblue")
+
+# Identify outlier row
+outlier_rowUS <- US %>%
+  filter(Total.Per == max(Total.Per, na.rm = TRUE))
+#print(outlier_rowUS)
+
+# Repeat for Colombia
+# Check outliers 
+outlier(Colombia) 
+grubbs.test(Colombia$Age15to24.Thou) # This is an outlier. 
+grubbs.test(Colombia$Age25above.Thou) # This is an outlier. 
+grubbs.test(Colombia$Age15to24.Per) 
+grubbs.test(Colombia$Age25above.Per)
+grubbs.test(Colombia$Female.Thou) # This is an outlier. 
+grubbs.test(Colombia$Male.Thou) # This is an outlier. 
+grubbs.test(Colombia$Female.Per)
+grubbs.test(Colombia$Male.Per)
+grubbs.test(Colombia$Total.Thou) # This is an outlier. 
+grubbs.test(Colombia$Total.Per)
+
+# Check the box plot for total unemployment (for PPT)
+#boxplot(Colombia$Total.Per,
+ #       main = "Boxplot: Colombia Unemployment Rate (%)",
+  #      horizontal = TRUE, 
+   #     col = "lightblue")
+
+# Plotting for total unemployment, ACF, PACF (for PPT)
+ts_Colombia_ppt <- ts(Colombia$Total.Per, start = c(2001, 1), frequency = 12)
+p1 <- autoplot(ts_Colombia_ppt) +
+  ggtitle("Colombia") +
+  ylab("Unemployment Rate (%)") +
+  xlab("Time")
+
+p2 <- ggAcf(ts_Colombia_ppt, lag.max = 40) +
+  ggtitle("ACF")
+
+p3 <- ggPacf(ts_Colombia_ppt, lag.max = 40) +
+  ggtitle("PACF")
+
+#grid.arrange(p1, p2, p3, ncol = 3)
+
+
+# Find the row where Total.Per is the outlier (10.8%)
+outlier_row <- Colombia %>%
+  filter(Total.Per == max(Total.Per, na.rm = TRUE))
+
+#print(outlier_row) # Highest Value is 2005-02-01.
+```
+
+The original unemployment series for Colombia (2010–2024) contained several large, abrupt shifts not aligned with typical seasonal or trend patterns. These were likely due to structural shocks—such as policy interventions or labor market disruptions—that introduced high-frequency noise into the series.
+
+Forecast models trained on this unprocessed data displayed:
+
+- Poor residual diagnostics (e.g., autocorrelated errors, non-stationarity)
+- Inflated prediction intervals due to volatility
+- Difficulty capturing the seasonal signal amidst erratic fluctuations
+
+By applying an IQR-based outlier removal method followed by interpolation, we preserved the core seasonality and trend while stabilizing model input. The cleaned series yielded:
+
+- More consistent decomposition structures
+- Significantly improved stationarity
+- Better Ljung–Box test results
+- Lower RMSE and MAPE across most models
+
+Thus, although both versions were tested, the **outlier-removed series was ultimately chosen** as the modeling base to ensure robust and interpretable forecasts.
+
+
+
+## 4. Analyzing Decomposition and Stationarity 
+
+```{r us_decomposition_stationarity, echo=FALSE, warning=FALSE, message=FALSE, results='hide', fig.show='hide'}
+# --------------------------------------------------------------
+# Time Series Analysis for US (Outliers-removed Series)
+# --------------------------------------------------------------
+
+# Step 1: Transform into time series and set training and testing windows
+# ---- Time Series Transformation and Decomposition for US (Original Series) ----
+
+# Transform into time series
+ts_US <- ts(US[,2:11],
+            start = c(year(US$Month[1]), month(US$Month[1])),
+            frequency = 12)
+
+# Define total number of observations and forecast period
+nobsUS <- nrow(US)
+n_forUS <- 12
+
+# Create training and testing subsets
+ts_US_train <- ts(US[1:(nobsUS - n_forUS), 2:11],
+                  start = c(year(US$Month[1]), month(US$Month[1])),
+                  frequency = 12)
+
+start_rowUS <- nobsUS - n_forUS + 1
+ts_US_test <- ts(US[(nobsUS - n_forUS + 1):nobsUS, 2:11],
+                 start = c(year(US$Month[start_rowUS]), month(US$Month[start_rowUS])),
+                 frequency = 12)
+
+# ACF and PACF plots for diagnostics
+par(mfrow = c(1, 2))
+Acf(ts_US_train[,"Total.Per"], lag.max = 40, main = "")
+Pacf(ts_US_train[,"Total.Per"], lag.max = 40, main = "")
+par(mfrow = c(1, 1))
+
+# Decomposition and deseasonalization
+decom_totalper_trainUS <- decompose(ts_US_train[,"Total.Per"])
+deseas_totalper_trainUS <- seasadj(decom_totalper_trainUS)
+
+# Stationarity and seasonality tests
+adf.test(deseas_totalper_trainUS, alternative = "stationary")
+MannKendall(deseas_totalper_trainUS)
+
+adf.test(ts_US_train[,"Total.Per"], alternative = "stationary")
+SeasonalMannKendall(ts_US_train[,"Total.Per"])
+smk.test(ts_US_train[,"Total.Per"])
+
+# Differencing requirement
+ndiffs(ts_US_train[,"Total.Per"])
+ndiffs(deseas_totalper_trainUS)
+```
+
+```{r colombia_decomposition_stationarity, echo=FALSE, warning=FALSE, message=FALSE, results='hide', fig.show='hide'}
+# --------------------------------------------------------------
+# Time Series Analysis for Colombia (Outliers-removed Series)
+# --------------------------------------------------------------
+# Transform into time series
+# 201001~202412 : Because, there are 6 missing months before 2010 
+# and also 2010 January is a break in series.
+
+
+ts_Colombia <- ts(Colombia[,2:11],
+              start=c(year(Colombia$Month[1]), month(Colombia$Month[1])),
+              frequency = 12)
+
+# Set the period
+nobs = nrow(Colombia)
+n_for = 12
+
+# Create a subset for training purpose 
+ts_Colombia_train <- ts(Colombia[97:(nobs-n_for),2:11],
+                    start=c(2010, 1),end=c(2023,12),
+                    frequency = 12)
+#ts_Colombia_total <- window(ts_Colombia_total_per, start = c(2010, 1), end = c(2023, 12))
+
+head(ts_Colombia_train)
+tail(ts_Colombia_train)
+
+# Create a subset for testing purpose(2024)
+start_row = nobs - n_for + 1
+ts_Colombia_test <- ts(Colombia[(nobs-n_for+1):nobs,2:11],
+                   start=c(year(Colombia$Month[start_row]),
+                           month(Colombia$Month[start_row])), frequency = 12)
+
+head(ts_Colombia_test)
+tail(ts_Colombia_test)
+
+# Plots 
+train <- autoplot(ts_Colombia_train[,"Total.Per"]) + ylab("Unemployment Rate (%)") +
+  ggtitle("Training Window")
+test <- autoplot(ts_Colombia_test[,"Total.Per"]) + ylab("Unemployment Rate (%)") +
+  ggtitle("Testing Window")
+grid.arrange(train, test, ncol = 2)
+
+par(mfrow=c(1,2))
+  Acf(ts_Colombia_train[,"Total.Per"], lag=40, plot = TRUE, main = "")
+  Pacf(ts_Colombia_train[,"Total.Per"], lag=40, plot = TRUE, main = "")
+
+# Decompose 
+decom_totalper_train <- decompose(ts_Colombia_train[,"Total.Per"])
+plot(decom_totalper_train)
+
+# Deseason 
+deseas_totalper_train <- seasadj(decom_totalper_train)  
+plot(deseas_totalper_train)
+
+# Run the tests on deseasoned series
+print(adf.test(deseas_totalper_train, alternative = "stationary")) # It is unit root. 
+summary(MannKendall(deseas_totalper_train)) # It has a decreasing trend.
+
+# Run the tests on original series 
+print(adf.test(ts_Colombia_train[,"Total.Per"], alternative = "stationary")) # It is stationary. 
+summary(SeasonalMannKendall(ts_Colombia_train[,"Total.Per"])) 
+summary(smk.test(ts_Colombia_train[,"Total.Per"])) # It has seasonality. 
+
+# Check for any differencing needed 
+print(ndiffs(ts_Colombia_train[,"Total.Per"]))
+print(ndiffs(deseas_totalper_train))
+```
+
+The decomposed unemployment series for both the US and Colombia (after outlier removal) revealed strong seasonal patterns and structural trends. For the US, the ADF test confirmed non-stationarity (p = 0.5664), while the Mann-Kendall and Seasonal Mann-Kendall tests indicated a significant downward trend and seasonal effects. Similarly, Colombia's series exhibited non-stationarity (ADF p = 0.63), strong seasonality (Kruskal-Wallis p < 0.001), but no significant seasonal trend (SMK p = 0.136). In both cases, one level of differencing was required to achieve stationarity, and deseasonalized, differenced series were used for robust model training and testing.
+
+The training datasets for both the US and Colombia were constructed by transforming the monthly unemployment percentage into time series objects, excluding the most recent 12 months which were reserved for testing. For the US, data from 2001 to 2023 was used, while Colombia's training period covered 2010 to 2023 to ensure continuity after handling missing and outlier values. Deseasonalization and differencing were applied where necessary to stabilize the series and meet stationarity assumptions before model fitting.
+
+
+
