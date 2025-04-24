@@ -5,6 +5,7 @@ author: "Aye Nyein Thu, Mazhar Bhuyan, Yuqi Yang, Jisup Kwak"
 date: "`r Sys.Date()`"
 output:
   pdf_document:
+    latex_engine: xelatex
     toc: true
     toc_depth: 2
     number_sections: true
@@ -129,27 +130,63 @@ US <- UE_Countries %>%
          Total.Per, Age15to24.Thou, Age25above.Thou, Female.Thou, Male.Thou,
          Total.Thou)
 
-# Define ts_Colombia_train and ts_Colombia_train_out BEFORE using them
+## Colombia Data Pre-processing
+
+Colombia_unemployment <- Colombia
+Colombia_unemployment$Month <- as.Date(Colombia_unemployment$Month)
+
+full_month_seq <- data.frame(Month = seq.Date(
+  from = min(Colombia_unemployment$Month),
+  to = max(Colombia_unemployment$Month),
+  by = "month"
+))
+
+Colombia_unemployment <- full_month_seq %>%
+  left_join(Colombia_unemployment, by = "Month")
+
+# Time series conversion
+ts_Colombia_total_thou <- ts(Colombia_unemployment$Total.Thou, start = c(2001, 7), frequency = 12)
+ts_Colombia_total_per <- ts(Colombia_unemployment$Total.Per, start = c(2001, 7), frequency = 12)
+
+
+# Interpolation
+ts_Colombia_total_thou <- na_interpolation(ts_Colombia_total_thou, option = "linear")
+ts_Colombia_total_per <- na_interpolation(ts_Colombia_total_per, option = "linear")
+
+
+
+# Define ts_Colombia_train and ts_Colombia_train_out
 ts_Colombia_train <- ts(
   Colombia %>% filter(Month >= as.Date("2010-01-01")) %>% pull(Total.Per),
   start = c(2010, 1), frequency = 12
 )
 
-q1 <- quantile(ts_Colombia_train, 0.25, na.rm = TRUE)
-q3 <- quantile(ts_Colombia_train, 0.75, na.rm = TRUE)
-iqr <- q3 - q1
-lower_bound <- q1 - 1.5 * iqr
-upper_bound <- q3 + 1.5 * iqr
+# Clean the series using tsclean
+ts_Colombia_train_out <- tsclean(ts_Colombia_train)
 
-outliers <- which(ts_Colombia_train < lower_bound | ts_Colombia_train > upper_bound)
-ts_Colombia_train_out <- ts_Colombia_train
+# Plot original vs cleaned series
+df_compare <- data.frame(
+  Month = time(ts_Colombia_train),
+  Original = as.numeric(ts_Colombia_train),
+  Cleaned = as.numeric(ts_Colombia_train_out)
+) %>% drop_na()
 
-# Replace outliers and interpolate
-if (length(outliers) > 0) {
-  ts_Colombia_train_out[outliers] <- NA
-  ts_Colombia_train_out <- na.interp(ts_Colombia_train_out)
-}
+# ggplot(df_compare, aes(x = Month)) +
+#   geom_line(aes(y = Original, color = "Original"), size = 0.8, alpha = 0.6) +
+#   geom_line(aes(y = Cleaned, color = "Outlier-Removed"), size = 0.8, linetype = "dashed") +
+#   labs(title = "Colombia Unemployment: Original vs Outlier-Removed Series",
+#        x = "Time", y = "Unemployment Rate (%)") +
+#   scale_color_manual(values = c("Original" = "brown", "Outlier-Removed" = "purple")) +
+#   theme_minimal() +
+#   theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+
+# Additional diagnostic plots from analysis file
+# par(mfrow = c(1, 2))
+# boxplot(ts_Colombia_train, main = "Original Series", col = "tomato", horizontal = TRUE)
+# boxplot(ts_Colombia_train_out, main = "Cleaned Series", col = "steelblue", horizontal = TRUE)
+# par(mfrow = c(1, 1))
 ```
+
 
 ```{r summary_statistics_table_pdf, results='asis', echo=FALSE}
 library(kableExtra)
@@ -211,8 +248,10 @@ global_ts <- UE_weighted %>%
 global_ts$Country <- "Global Weighted"
 
 compare_df <- bind_rows(
-  global_ts %>% rename(Total.Per = global_unemployment),
-  US %>% select(Month, Total.Per) %>% mutate(Country = "US"),
+  global_ts %>% 
+    rename(Total.Per = global_unemployment),
+  US %>% select(Month, Total.Per) %>% 
+    mutate(Country = "US"),
   Colombia %>% select(Month, Total.Per) %>% mutate(Country = "Colombia")
 )
 
@@ -232,7 +271,6 @@ However, what’s striking is the rapid recovery of unemployment rates post-COVI
 
 These plots collectively set the stage for understanding the differences in labor market resilience between a high-income country and a developing one — an essential motivation for this forecasting exercise.
 
-During initial exploration, Colombia's unemployment series exhibited irregular seasonal patterns and nonlinear shifts, suggesting the presence of structural outliers. As part of preprocessing, we applied an outlier detection method (IQR-based) and tested both the original and the cleaned series. Visual inspection and model diagnostics showed that the cleaned series led to more stable and interpretable forecasts.
 
 ## 3. Outlier Detection and Pre-Forecast Diagnostics for Colombia
 
@@ -257,19 +295,50 @@ ggplot(df_compare, aes(x = Month)) +
   theme_minimal()+
   theme(plot.title = element_text(hjust = 0.5, face = "bold"))
 ```
+The original unemployment series for Colombia (2010–2024) contained several large, abrupt shifts not aligned with typical seasonal or trend patterns. These were likely due to structural shocks—such as policy interventions or labor market disruptions—that introduced high-frequency noise into the series.
+
+Forecast models trained on this unprocessed data displayed:
+
+- Poor residual diagnostics (e.g., autocorrelated errors, non-stationarity)
+- Inflated prediction intervals due to volatility
+- Difficulty capturing the seasonal signal amidst erratic fluctuations
+
 
 ```{r decomposition_adf_tests, echo=FALSE, results='hide', fig.width=8, fig.height=3.5}
 # Decomposition and stationarity tests
+# STL Decomposition
 stl_colombia <- stl(ts_Colombia_train_out, s.window = "periodic")
 autoplot(stl_colombia) +
-  ggtitle("STL Decomposition of Cleaned Colombia Series")
+  ggtitle("STL Decomposition of Cleaned Colombia Series") +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
 
-adf_result <- adf.test(ts_Colombia_train_out)
-df_temp <- data.frame(Month = time(ts_Colombia_train_out),
-                      Value = as.numeric(ts_Colombia_train_out))
+# Stationarity tests
+adf_result <- adf.test(ts_Colombia_train_out, alternative = "stationary")
+kpss_result <- kpss.test(ts_Colombia_train_out)
+
+# Seasonality tests
+df_temp <- data.frame(
+  Month = time(ts_Colombia_train_out),
+  Value = as.numeric(ts_Colombia_train_out))
 df_temp$MonthNum <- cycle(ts_Colombia_train_out)
-kruskal.test(Value ~ MonthNum, data = df_temp)
+seasonal_test <- kruskal.test(Value ~ MonthNum, data = df_temp)
 SMK_test <- Kendall::SeasonalMannKendall(ts_Colombia_train_out)
+
+# Create a table of test results
+test_results <- data.frame(
+  Test = c("ADF", "KPSS", "Kruskal-Wallis", "Seasonal MK"),
+  Statistic = c(adf_result$statistic, kpss_result$statistic, 
+                seasonal_test$statistic, SMK_test$tau),
+  p.value = c(adf_result$p.value, kpss_result$p.value,
+              seasonal_test$p.value, SMK_test$sl)
+)
+
+kbl(test_results, caption = "Stationarity and Seasonality Test Results") %>%
+  kable_styling(full_width = FALSE) %>%
+  column_spec(2:3, width = "3cm")
+
+# Differencing requirements
+cat("Recommended differences for stationarity:", ndiffs(ts_Colombia_train_out))
 ```
 
 ```{r outlier_checks, echo=FALSE, results='hide'}
@@ -292,8 +361,8 @@ grubbs.test(US$Total.Per)
 #     col = "lightblue")
 
 # Identify outlier row
-outlier_rowUS <- US %>%
-  filter(Total.Per == max(Total.Per, na.rm = TRUE))
+# outlier_rowUS <- US %>%
+#   filter(Total.Per == max(Total.Per, na.rm = TRUE))
 #print(outlier_rowUS)
 
 # Repeat for Colombia
@@ -337,25 +406,17 @@ outlier_row <- Colombia %>%
   filter(Total.Per == max(Total.Per, na.rm = TRUE))
 
 #print(outlier_row) # Highest Value is 2005-02-01.
+
+
 ```
 
-The original unemployment series for Colombia (2010–2024) contained several large, abrupt shifts not aligned with typical seasonal or trend patterns. These were likely due to structural shocks—such as policy interventions or labor market disruptions—that introduced high-frequency noise into the series.
+Since the original unemployment series for Colombia contained several irregularities that could affect model performance. Rather than using an IQR-based approach, we employed the tsclean() function which simultaneously handles both outliers and missing values through a more robust procedure. This method:
 
-Forecast models trained on this unprocessed data displayed:
-
-- Poor residual diagnostics (e.g., autocorrelated errors, non-stationarity)
-- Inflated prediction intervals due to volatility
-- Difficulty capturing the seasonal signal amidst erratic fluctuations
-
-By applying an IQR-based outlier removal method followed by interpolation, we preserved the core seasonality and trend while stabilizing model input. The cleaned series yielded:
-
-- More consistent decomposition structures
-- Significantly improved stationarity
-- Better Ljung–Box test results
-- Lower RMSE and MAPE across most models
-
+- Identifies and replaces outliers using smoothing
+- Interpolates missing values
+- Preserves the overall trend and seasonality
+- The cleaned series shows smoother transitions while maintaining the fundamental patterns observed in the original data.
 Thus, although both versions were tested, the **outlier-removed series was ultimately chosen** as the modeling base to ensure robust and interpretable forecasts.
-
 
 
 ## 4. Analyzing Decomposition and Stationarity 
@@ -416,7 +477,7 @@ ndiffs(deseas_totalper_trainUS)
 # --------------------------------------------------------------
 # Transform into time series
 # 201001~202412 : Because, there are 6 missing months before 2010 
-# and also 2010 January is a break in series.
+# and also 2010 January is a break in series.In the case of Colombia we selected data 
 
 
 ts_Colombia <- ts(Colombia[,2:11],
@@ -476,11 +537,153 @@ summary(smk.test(ts_Colombia_train[,"Total.Per"])) # It has seasonality.
 # Check for any differencing needed 
 print(ndiffs(ts_Colombia_train[,"Total.Per"]))
 print(ndiffs(deseas_totalper_train))
+
+# --- Split cleaned series into training and testing sets ---
+n_for <- 12  # Forecast horizon
+ts_train <- window(ts_Colombia_train_out, start = c(2010,1), end = c(2023, 12))
+ts_test <- window(ts_Colombia_train_out, start = c(2024, 1))
+
+# --- Decomposition and Deseasonalization ---
+decom <- decompose(ts_train)
+deseas_train <- seasadj(decom)
 ```
 
 The decomposed unemployment series for both the US and Colombia (after outlier removal) revealed strong seasonal patterns and structural trends. For the US, the ADF test confirmed non-stationarity (p = 0.5664), while the Mann-Kendall and Seasonal Mann-Kendall tests indicated a significant downward trend and seasonal effects. Similarly, Colombia's series exhibited non-stationarity (ADF p = 0.63), strong seasonality (Kruskal-Wallis p < 0.001), but no significant seasonal trend (SMK p = 0.136). In both cases, one level of differencing was required to achieve stationarity, and deseasonalized, differenced series were used for robust model training and testing.
 
-The training datasets for both the US and Colombia were constructed by transforming the monthly unemployment percentage into time series objects, excluding the most recent 12 months which were reserved for testing. For the US, data from 2001 to 2023 was used, while Colombia's training period covered 2010 to 2023 to ensure continuity after handling missing and outlier values. Deseasonalization and differencing were applied where necessary to stabilize the series and meet stationarity assumptions before model fitting.
+The training datasets for both the US and Colombia were constructed by transforming the monthly unemployment percentage into time series objects, excluding the most recent 12 months which were reserved for testing. For the US, data from 2001 to 2023 was used, while Colombia's training period covered 2010 to 2023 to ensure continuity after handling missing and outlier values. Deseasonalization and differencing by 1 lag were applied where necessary to stabilize the series and meet stationarity assumptions before model fitting.
 
-## 5  Colombia 
+## 5. Colombia's Unemployment Model Fitting
 
+### Models 1–4: Baseline Approaches
+
+<div style="background-color:#f9f9f9; padding:10px; border-left:5px solid #cccccc; border-radius:4px; column-count:2;">
+**Models Evaluated (1–11):**
+
+- Seasonal Naive (SNAIVE)
+- Simple Moving Average (SMA)
+- Simple Exponential Smoothing (SES)
+- SARIMA (auto.arima)
+- Deseasonalized ARIMA
+- STL + ETS (stlf)
+- ARIMA + Fourier
+- TBATS
+- Neural Network AutoRegressive (NNETAR)
+- State‑Space ETS (SSES)
+- Basic Structural Model (BSM)
+</div>
+
+We ran eleven forecasting models on Colombia’s deseasonalized unemployment series. While each method offers distinct advantages, only a subset produced robust and interpretable forecasts. Therefore, in the sections that follow, we selectively highlight the most promising models and explain the rationale for excluding others.
+
+<!-- All models reordered below -->
+
+#### Seasonal Naive (SNAIVE)
+The Seasonal Naive model repeats last year’s pattern exactly. It captures the strong annual cycle but its residuals show persistent autocorrelation and non‐normality (via the Ljung–Box ACF and histogram). This indicates unmodeled trend/structure, so SNAIVE is not selected for final forecasts.
+
+```{r snaive_model, include=FALSE}
+SNAIVE_deseas <- snaive(ts_train, h = n_for)
+autoplot(SNAIVE_deseas)
+checkresiduals(SNAIVE_deseas)
+```
+
+#### Simple Moving Average (SMA)
+SMA smooths the deseasonalized series by averaging over a fixed window, which dampens noise but also delays response to changes. Here it captures the medium‐term level but its residual ACF still shows slow decay, and the residuals histogram remains skewed. In other words, SMA fails to fully whiten the residuals, so it is not chosen.
+
+```{r sma_model, include=FALSE}
+SMA_deseas <- smooth::sma(deseas_train, h = n_for)
+forecast::autoplot(SMA_deseas$fitted)
+checkresiduals(SMA_deseas)
+```
+
+#### Simple Exponential Smoothing (SES)
+SES applies exponentially decaying weights to past observations, allowing quicker adaptation to level shifts compared to SMA. It follows recent changes more closely, but its residual ACF still shows significant spikes, and the distribution remains non‐normal. Thus, SES also fails the iid residual criterion and is not retained.
+
+```{r ses_model, include=FALSE}
+SES_deseas <- ses(deseas_train, h = n_for)
+forecast::autoplot(SES_deseas)
+checkresiduals(SES_deseas)
+```
+
+#### SARIMA
+SARIMA fits both non‐seasonal (p,d,q) and seasonal (P,D,Q)[12] components and flexibly captures trends, seasonality, and shocks. However, compared to other candidates, it was outperformed in terms of residual whiteness and forecast sharpness, so it was not included in the final ensemble.
+
+```{r sarima_model, include=FALSE}
+SARIMA_model <- auto.arima(ts_train)
+forecast::autoplot(forecast(SARIMA_model, h=n_for))
+checkresiduals(SARIMA_model)
+```
+
+#### Deseasonalized ARIMA
+By first removing seasonality via STL, then fitting ARIMA to the deseasonalized series, this approach isolates the trend and noise. The resulting ARIMA model yields residuals that also pass the whiteness checks, showing no remaining autocorrelation. This confirms that modeling deseasonalized data directly is effective, so this ARIMA is selected.
+
+```{r arima_deseas, echo=FALSE, warning=FALSE, message=FALSE, fig.width=8, fig.height=4, results='hide'}
+ARIMA_model <- auto.arima(deseas_train, max.D = 0, max.P = 0, max.Q = 0)
+ARIMA_forecast <- forecast(ARIMA_model, h = n_for)
+forecast::autoplot(ARIMA_forecast)
+checkresiduals(ARIMA_model)
+cat("The ARIMA model's residuals show no significant autocorrelation and pass white-noise checks, supporting its validity.\n")
+```
+
+#### STL + ETS
+STL+ETS decomposes seasonality with STL and then applies ETS to the remainder. While it can adapt to changing seasonality, its residual ACF still shows slow decay, signaling unmodeled patterns. Hence, despite its flexibility, STL+ETS is not chosen.
+
+```{r stl_ets_model, include=FALSE}
+ETS_model <- stlf(ts_train, h=n_for)
+forecast::autoplot(ETS_model)
+checkresiduals(ETS_model)
+```
+
+#### ARIMA + Fourier
+Incorporating Fourier terms allows ARIMA to model seasonality via a small set of sine/cosine waves. Here it captures both the annual cycle and trend smoothly. The residuals pass whiteness tests with no significant autocorrelation. Because it balances parsimony and fit, ARIMA+Fourier is selected.
+
+```{r arima_fourier, echo=FALSE, warning=FALSE, message=FALSE, fig.width=8, fig.height=4, results='hide'}
+K <- 3
+xreg_train <- fourier(ts_train, K=K)
+ARIMA_Fourier_model <- auto.arima(ts_train, seasonal=FALSE, xreg=xreg_train)
+xreg_future <- fourier(ts_train, K=K, h=n_for)
+ARIMA_Fourier_forecast <- forecast(ARIMA_Fourier_model, xreg = xreg_future, h = n_for)
+autoplot(ARIMA_Fourier_forecast)
+checkresiduals(ARIMA_Fourier_model)
+cat("The ARIMA+Fourier model captures seasonal cycles well. Residuals are uncorrelated, confirming the model's adequacy.\n")
+```
+
+#### TBATS
+TBATS is designed for complex seasonal patterns using trigonometric terms, Box–Cox transformation, ARMA errors, and trend components. Despite this flexibility, residual diagnostics still showed autocorrelation at seasonal lags, so TBATS was not selected for final forecasting.
+
+```{r tbats_model, include=FALSE}
+TBATS_model <- tbats(ts_train)
+forecast::autoplot(forecast(TBATS_model, h=n_for))
+checkresiduals(TBATS_model)
+```
+
+#### Neural Network AutoRegressive (NNETAR)
+The neural‐network autoregressive model captures nonlinear patterns and seasonality without explicit decomposition. Its residuals pass the Ljung–Box test and show no significant autocorrelation, indicating it adapts well to complex dynamics. Therefore, NNETAR is selected.
+
+```{r nn_model, echo=FALSE, warning=FALSE, message=FALSE, fig.width=8, fig.height=4, results='hide'}
+K <- 3
+xreg_train <- fourier(ts_train, K=K)
+NN_model <- nnetar(ts_train, p=3, P=0, xreg=xreg_train)
+NN_forecast <- forecast(NN_model, xreg=fourier(ts_train, K=K, h=n_for))
+autoplot(NN_forecast)
+checkresiduals(NN_model)
+cat("The NNETAR model produces residuals that pass the Ljung-Box test and show no significant autocorrelation.\n")
+```
+
+#### State‑Space ETS (SSES)
+The state‐space ETS estimates all smoothing, trend, and seasonal components in a unified framework. Its residuals are white noise, showing no remaining autocorrelation. Because it provides an adaptive and statistically principled fit, SSES is selected.
+
+```{r sses_model, echo=FALSE, warning=FALSE, message=FALSE, fig.width=8, fig.height=4, results='hide'}
+SSES_model <- es(ts_train, model = "ZZZ", h = n_for)
+SSES_forecast <- SSES_model$forecast
+autoplot(SSES_forecast)
+checkresiduals(SSES_model)
+cat("The SSES model results in residuals with no autocorrelation, validating its trend and seasonality estimates.\n")
+```
+
+#### Basic Structural Model (BSM)
+The basic structural time series (BSM) explicitly models level, slope, and season. While conceptually appealing, here its residuals still exhibit mild autocorrelation at seasonal lags. Thus, BSM is not included in the final ensemble.
+
+```{r bsm_model, include=FALSE}
+SS_model <- StructTS(ts_train, type="BSM")
+forecast::autoplot(forecast(SS_model, h=n_for))
+checkresiduals(SS_model)
+```
