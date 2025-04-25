@@ -1,4 +1,4 @@
-This is XeTeX, Version 3.141592653-2.6-0.999997 (TeX Live 2025) (preloaded format=xelatex 2025.4.22)  25 APR 2025 04:32
+This is XeTeX, Version 3.141592653-2.6-0.999997 (TeX Live 2025) (preloaded format=xelatex 2025.4.22)  25 APR 2025 14:24
 entering extended mode
  restricted \write18 enabled.
  %&-line parsing enabled.
@@ -840,41 +840,46 @@ File: Report_Mazhar_files/figure-latex/decomposition_adf_tests-1.pdf Graphic fil
 [4]
 
 [5]
+File: Report_Mazhar_files/figure-latex/outlier boxplot-1.pdf Graphic file (type pdf)
+<use Report_Mazhar_files/figure-latex/outlier boxplot-1.pdf>
+
 
 [6]
+
+[7]
 File: Report_Mazhar_files/figure-latex/arima_deseas-1.pdf Graphic file (type pdf)
 <use Report_Mazhar_files/figure-latex/arima_deseas-1.pdf>
 File: Report_Mazhar_files/figure-latex/arima_deseas-2.pdf Graphic file (type pdf)
 <use Report_Mazhar_files/figure-latex/arima_deseas-2.pdf>
 
-Underfull \hbox (badness 10000) in paragraph at lines 376--378
+Underfull \hbox (badness 10000) in paragraph at lines 390--392
 [][]
  []
 
 
 
-[7]
+[8]
 File: Report_Mazhar_files/figure-latex/arima_fourier-1.pdf Graphic file (type pdf)
 <use Report_Mazhar_files/figure-latex/arima_fourier-1.pdf>
 File: Report_Mazhar_files/figure-latex/arima_fourier-2.pdf Graphic file (type pdf)
 <use Report_Mazhar_files/figure-latex/arima_fourier-2.pdf>
 
 
-[8]
+[9]
 File: Report_Mazhar_files/figure-latex/tbats_model-1.pdf Graphic file (type pdf)
 <use Report_Mazhar_files/figure-latex/tbats_model-1.pdf>
 File: Report_Mazhar_files/figure-latex/tbats_model-2.pdf Graphic file (type pdf)
 <use Report_Mazhar_files/figure-latex/tbats_model-2.pdf>
 
 
-[9]
+[10]
 File: Report_Mazhar_files/figure-latex/nn_model-1.pdf Graphic file (type pdf)
 <use Report_Mazhar_files/figure-latex/nn_model-1.pdf>
 File: Report_Mazhar_files/figure-latex/nn_model-2.pdf Graphic file (type pdf)
 <use Report_Mazhar_files/figure-latex/nn_model-2.pdf>
 
 
-[10]
+[11]
 File: Report_Mazhar_files/figure-latex/sses_model-1.pdf Graphic file (type pdf)
 <use Report_Mazhar_files/figure-latex/sses_model-1.pdf>
 File: Report_Mazhar_files/figure-latex/sses_model-2.pdf Graphic file (type pdf)
@@ -883,27 +888,27 @@ File: Report_Mazhar_files/figure-latex/unnamed-chunk-1-1.pdf Graphic file (type 
 <use Report_Mazhar_files/figure-latex/unnamed-chunk-1-1.pdf>
 
 
-[11]
+[12]
 Missing character: There is no ✅ (U+2705) in font [lmroman10-regular]:mapping=tex-text;!
 File: Report_Mazhar_files/figure-latex/unnamed-chunk-2-1.pdf Graphic file (type pdf)
 <use Report_Mazhar_files/figure-latex/unnamed-chunk-2-1.pdf>
 
 
-[12]
+[13]
 File: Report_Mazhar_files/figure-latex/unnamed-chunk-3-1.pdf Graphic file (type pdf)
 <use Report_Mazhar_files/figure-latex/unnamed-chunk-3-1.pdf>
 
 
-[13]
+[14]
 File: Report_Mazhar_files/figure-latex/unnamed-chunk-4-1.pdf Graphic file (type pdf)
 <use Report_Mazhar_files/figure-latex/unnamed-chunk-4-1.pdf>
 File: Report_Mazhar_files/figure-latex/unnamed-chunk-5-1.pdf Graphic file (type pdf)
 <use Report_Mazhar_files/figure-latex/unnamed-chunk-5-1.pdf>
 
 
-[14]
-
 [15]
+
+[16]
 File: Report_Mazhar_files/figure-latex/time series-1.pdf Graphic file (type pdf)
 <use Report_Mazhar_files/figure-latex/time series-1.pdf>
 File: Report_Mazhar_files/figure-latex/ACF PACF-1.pdf Graphic file (type pdf)
@@ -914,55 +919,28 @@ File: Report_Mazhar_files/figure-latex/fig:deseas_us-1.pdf Graphic file (type pd
 <use Report_Mazhar_files/figure-latex/fig:deseas_us-1.pdf>
 
 
-[16
+[17
 
 ]
 
-[17]
-Underfull \hbox (badness 10000) in paragraph at lines 701--704
-
- []
-
-
-Underfull \hbox (badness 10000) in paragraph at lines 704--707
-
- []
-
-
-Underfull \hbox (badness 10000) in paragraph at lines 707--711
-
- []
-
-
-Underfull \hbox (badness 1527) in paragraph at lines 711--714
-[]\TU/lmr/bx/n/10 SARIMA \TU/lmr/m/n/10 captures both autoregressive and seasonal structures in the original series using
- []
-
-
-Underfull \hbox (badness 10000) in paragraph at lines 711--714
-
- []
-
-
-Underfull \hbox (badness 10000) in paragraph at lines 714--718
-
- []
-
-
-Underfull \hbox (badness 10000) in paragraph at lines 718--721
-
- []
-
-
-
 [18]
-Underfull \hbox (badness 10000) in paragraph at lines 721--724
+Underfull \hbox (badness 10000) in paragraph at lines 717--720
 
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 724--727
+Underfull \hbox (badness 10000) in paragraph at lines 720--723
 
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 723--727
+
+ []
+
+
+Underfull \hbox (badness 1527) in paragraph at lines 727--730
+[]\TU/lmr/bx/n/10 SARIMA \TU/lmr/m/n/10 captures both autoregressive and seasonal structures in the original series using
  []
 
 
@@ -971,14 +949,41 @@ Underfull \hbox (badness 10000) in paragraph at lines 727--730
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 730--733
+Underfull \hbox (badness 10000) in paragraph at lines 730--734
+
+ []
+
+
+
+[19]
+Underfull \hbox (badness 10000) in paragraph at lines 734--737
+
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 737--740
+
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 740--743
+
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 743--746
+
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 746--749
 
  []
 
 File: Report_Mazhar_files/figure-latex/forecast plot-1.pdf Graphic file (type pdf)
 <use Report_Mazhar_files/figure-latex/forecast plot-1.pdf>
 
-Overfull \hbox (32.20493pt too wide) in paragraph at lines 785--812
+Overfull \hbox (32.20493pt too wide) in paragraph at lines 801--828
  [][] 
  []
 
@@ -986,11 +991,11 @@ File: Report_Mazhar_files/figure-latex/forecast result 2025 US original-1.pdf Gr
 <use Report_Mazhar_files/figure-latex/forecast result 2025 US original-1.pdf>
 
 
-[19]
-
 [20]
 
 [21]
+
+[22]
 File: Report_Mazhar_files/figure-latex/Remove outliers US-1.pdf Graphic file (type pdf)
 <use Report_Mazhar_files/figure-latex/Remove outliers US-1.pdf>
 File: Report_Mazhar_files/figure-latex/train test outlier-1.pdf Graphic file (type pdf)
@@ -999,125 +1004,105 @@ File: Report_Mazhar_files/figure-latex/acf pacf outlier-1.pdf Graphic file (type
 <use Report_Mazhar_files/figure-latex/acf pacf outlier-1.pdf>
 
 
-[22]
-
 [23]
 
 [24]
+
+[25]
 File: Report_Mazhar_files/figure-latex/fig:decomp_us_o-1.pdf Graphic file (type pdf)
 <use Report_Mazhar_files/figure-latex/fig:decomp_us_o-1.pdf>
 File: Report_Mazhar_files/figure-latex/fig:deseas_us_o-1.pdf Graphic file (type pdf)
 <use Report_Mazhar_files/figure-latex/fig:deseas_us_o-1.pdf>
 
 
-[25]
-
 [26]
-Underfull \hbox (badness 10000) in paragraph at lines 937--941
-
- []
-
-
-Underfull \hbox (badness 10000) in paragraph at lines 941--944
-
- []
-
-
-Underfull \hbox (badness 10000) in paragraph at lines 944--948
-
- []
-
-
-Underfull \hbox (badness 10000) in paragraph at lines 948--952
-
- []
-
-
-Underfull \hbox (badness 10000) in paragraph at lines 952--956
-
- []
-
-
-Underfull \hbox (badness 10000) in paragraph at lines 956--959
-
- []
-
-
-Underfull \hbox (badness 10000) in paragraph at lines 959--963
-
- []
-
-
-Underfull \hbox (badness 10000) in paragraph at lines 963--967
-
- []
-
-
-Underfull \hbox (badness 10000) in paragraph at lines 967--971
-
- []
-
-
-Underfull \hbox (badness 10000) in paragraph at lines 971--975
-
- []
-
-
 
 [27]
-File: Report_Mazhar_files/figure-latex/forecast plot outlier-1.pdf Graphic file (type pdf)
-<use Report_Mazhar_files/figure-latex/forecast plot outlier-1.pdf>
+Underfull \hbox (badness 10000) in paragraph at lines 953--957
 
-Overfull \hbox (11.95493pt too wide) in paragraph at lines 1025--1052
- [][] 
  []
 
-File: Report_Mazhar_files/figure-latex/forecast result 2025 US outlier-1.pdf Graphic file (type pdf)
-<use Report_Mazhar_files/figure-latex/forecast result 2025 US outlier-1.pdf>
+
+Underfull \hbox (badness 10000) in paragraph at lines 957--960
+
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 960--964
+
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 964--968
+
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 968--972
+
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 972--975
+
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 975--979
+
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 979--983
+
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 983--987
+
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 987--991
+
+ []
+
 
 
 [28]
+File: Report_Mazhar_files/figure-latex/forecast plot outlier-1.pdf Graphic file (type pdf)
+<use Report_Mazhar_files/figure-latex/forecast plot outlier-1.pdf>
+
+Overfull \hbox (11.95493pt too wide) in paragraph at lines 1063--1090
+ [][] 
+ []
+
+
 
 [29]
+File: Report_Mazhar_files/figure-latex/Selecting Best Models-1.pdf Graphic file (type pdf)
+<use Report_Mazhar_files/figure-latex/Selecting Best Models-1.pdf>
 File: Report_Mazhar_files/figure-latex/Actual VS Forecast-1.pdf Graphic file (type pdf)
 <use Report_Mazhar_files/figure-latex/Actual VS Forecast-1.pdf>
 
-Underfull \hbox (badness 10000) in paragraph at lines 1126--1130
-
- []
-
-
-Underfull \hbox (badness 10000) in paragraph at lines 1139--1142
-
- []
-
-
-Underfull \hbox (badness 10000) in paragraph at lines 1151--1154
-
- []
-
-
 
 [30]
-Underfull \hbox (badness 10000) in paragraph at lines 1163--1166
 
- []
+[31]
 
-
-
-[31] (./Report_Mazhar.aux)
+[32] (./Report_Mazhar.aux)
  ***********
 LaTeX2e <2024-11-01> patch level 2
 L3 programming layer <2025-03-26>
  ***********
  ) 
 Here is how much of TeX's memory you used:
- 18718 strings out of 472283
- 353525 string characters out of 5529458
- 880214 words of memory out of 5000000
- 44914 multiletter control sequences out of 15000+600000
+ 18729 strings out of 472283
+ 354058 string characters out of 5529458
+ 880486 words of memory out of 5000000
+ 44924 multiletter control sequences out of 15000+600000
  633350 words of font info for 90 fonts, out of 8000000 for 9000
  14 hyphenation exceptions out of 8191
- 90i,9n,114p,356b,479s stack positions out of 10000i,1000n,20000p,200000b,200000s
+ 90i,9n,114p,356b,420s stack positions out of 10000i,1000n,20000p,200000b,200000s
 
-Output written on Report_Mazhar.pdf (31 pages).
+Output written on Report_Mazhar.pdf (32 pages).

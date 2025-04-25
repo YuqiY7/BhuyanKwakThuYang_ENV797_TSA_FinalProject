@@ -1585,25 +1585,16 @@ cat("The best model by Average is:", row.names(tpscoresUSout[best_model_index_tp
   guides(colour=guide_legend(title="Forecast")) # SMA and SSES could not run
 ```
 
-```{r Selecting Best Models, echo=FALSE, warning=FALSE, message=FALSE, fig.cap="US Cleaned: Forecast Comparison Across Models"}
-# Create Tables 
-kbl(tpscoresUSout, 
-      caption = "US Cleaned: Forecast Accuracy for Unemployment Rate (\\%) Data",
-      digits = array(5,ncol(tpscoresUSout))) %>%
-  kable_styling(full_width = FALSE, position = "center") %>%
-  #highlight model with lowest RMSE
-  kable_styling(latex_options="striped", stripe_index = which.min(tpscoresUSout[,"Average"]))
-```
-
-### Forecast for 2025 with Best Three Models (US Cleaned) 
+### Forecast for 2025 with Best Three Models (US Cleaned) {#sec:forecast2025_us_cleaned} 
 
 To forecast the U.S. unemployment rate for 2025, the three models with the best performance in the previous section were selected: **State Space with BSM, NNETAR, and ETS**. Each model was retrained using the full outliers-removed dataset from 2001 to 2024, and forecasts were generated for the 12 months of 2025.  
   
 Figure 20 presents the forecasted unemployment trajectories. All three models effectively capture the underlying trend and seasonal fluctuations. The projected unemployment rates fall within a range of 3.5% to 5.0% across the year.  
   
 NNETAR shows more responsive short-term movements but slightly underestimates the unemployment rate compared to the other models. The ETS model provides a smoother trend-following projection. The BSM model, which incorporates structural components, appears more responsive to recent data shifts. While the models differ in sensitivity and volatility, their trajectories remain consistent, which supports confidence in the robustness of the forecasts.  
-  
 
+
+  
 
 ```{r forecast 2025 US, include=FALSE}
 # Set the forecasting period
@@ -1644,20 +1635,37 @@ autoplot(ts_US_fulltrainout) +
 ETS_totalper_fulltrainUSout <-  stlf(ts_US_fulltrainout,h=n_fullUS)
 
 # Plot model + observed data
-autoplot(ts_US_fulltrainout) +
+  autoplot(ts_US_fulltrainout) +
   autolayer(ETS_totalper_fulltrainUSout, series="ETS",PI=FALSE)+
   ylab("Forecasted Unemployment Rate (%) in US")
+
 ```
 
-```{r forecast result 2025 US outlier, echo=FALSE, warning=FALSE, message=FALSE, fig.cap="US Cleaned: Forecast Unemployment Rate for 2025 — Top 3 Models"}
+```{r forecast_2025_plot_and_table, echo=FALSE, warning=FALSE, message=FALSE}
+kbl(tpscoresUSout, 
+    caption = "US Cleaned: Forecast Accuracy for Unemployment Rate (\\%) Data",
+    digits = array(5,ncol(tpscoresUSout))) %>%
+  kable_styling(full_width = FALSE, position = "center") %>%
+  kable_styling(latex_options="striped", stripe_index = which.min(tpscoresUSout[,"Average"]))
+
+
+```
+
+
+```{r Selecting Best Models, echo=FALSE, warning=FALSE, message=FALSE, fig.cap="US Cleaned: Forecast Unemployment Rate for 2025 — Top 3 Models", results='asis'}
+
 # Plot 4 models together 
-autoplot(ts_US_fulltrain) +
+
+  autoplot(ts_US_fulltrain) +
   autolayer(SS_for_totalper_fulltrainUSout, series="SS with BSM Model",PI=FALSE)+
   autolayer(NN_for_totalper_fulltrainUSout, series="NNETAR",PI=FALSE)+
   autolayer(ETS_totalper_fulltrainUSout, series="ETS",PI=FALSE)+
   ylab("Unemployment Rate (%)") + 
   ggtitle("Forecasted Unemployment Rate (%) in US (Outliers Removed)")
+
 ```
+
+
 
 
 ### Average of the Three Forecasts (US Cleaned) 
@@ -1754,26 +1762,30 @@ ggplot(plot_df2022, aes(x = Month, y = Value, color = Type, group = 1)) +
 # Conclusion and Key Takeaways
 
 
+This comparative analysis of unemployment trends in the United States (developed) and Colombia (developing) reveals critical insights into labor market dynamics and forecasting challenges. The U.S. exhibits smoother unemployment cycles, with rapid post-shock recovery facilitated by flexible policies and monetary tools. In contrast, Colombia’s structural constraints—including high informality and commodity dependence—lead to prolonged volatility and slower recovery.
 
-This comparative analysis of unemployment trends in the United States (developed) and Colombia (developing) reveals critical insights into labor market dynamics and forecasting challenges. The U.S. exhibits smoother unemployment cycles, with rapid post-shock recovery facilitated by flexible policies and monetary tools. In contrast, Colombia’s structural constraints—including high informality and commodity dependence—lead to prolonged volatility and slower recovery.  
+**1. Model Performance**  
 
-**Key Takeaways**:
+- For **Colombia**, **NNETAR**, **SSES**, and **TBATS** emerged as the most accurate and robust models. They effectively captured the nonlinear dynamics, trend decomposition, and seasonal irregularities in a volatile labor market.  
 
-1. **Model Performance**: 
+- For the **United States**, **ETS**, **NNETAR**, and **BSM** outperformed other models on outlier-removed series. These models offered smoother and more accurate forecasts by balancing responsiveness and structural interpretation.  
 
-   - **NNETAR** excelled in capturing nonlinear trends for Colombia, while **SARIMA** and **TBATS** emphasized seasonal patterns.  
-   - For the U.S., **BSM** and **ETS** provided the most accurate forecasts, leveraging structural and smoothing techniques.  
+- Contrary to initial assumptions, **SARIMA** underperformed in both countries, particularly due to residual autocorrelation and less reliable forecasts during volatile periods.
 
-2. **Developing vs. Developed**:  
-   - **Colombia**: Required adaptive models (e.g., NNETAR) to address structural shocks.  
-   - **U.S.**: Classical models (e.g., SARIMA) sufficed due to stable labor market institutions.  
+**2. Developing vs. Developed**  
 
-3. **Policy Implications**:  
-   - **Developing economies** need dual interventions: formalization policies and shock-responsive safety nets.  
-   - **Developed economies** should refine automatic stabilizers to maintain labor market resilience.  
+- **Colombia**'s structural informality and labor volatility required adaptive and ensemble-based forecasting techniques.  
 
-4. **Methodological Lessons**:  
-   - Ensemble approaches (e.g., averaging NNETAR, SSES, TBATS) reduced forecast error by 5.2% for Colombia.  
-   - Outlier removal improved model robustness but required trade-offs in capturing extreme events (e.g., COVID-19).  
+- The **United States**, with more stable institutional dynamics, allowed models like **ETS** and **BSM** to perform well post outlier adjustment.
 
-This study underscores the importance of tailoring forecasting approaches to economic contexts, with implications for policymakers and researchers navigating labor market uncertainties.  
+**3. Policy Implications**  
+
+- Policymakers in developing economies should prioritize adaptive social protection and labor market formalization to reduce volatility in employment metrics.  
+
+- In developed economies, maintaining and optimizing automatic stabilizers can ensure resilience in the face of external shocks.
+
+**4. Methodological Lessons**  
+
+- Using ensemble models—such as averaging forecasts from **NNETAR**, **TBATS**, and **SSES** (Colombia) and **ETS**, **NNETAR**, and **BSM** (United States)—reduced average forecast error and improved robustness.  
+
+- Cleaning the data by removing outliers significantly enhanced model diagnostics and accuracy but may underrepresent sudden economic disruptions, highlighting a trade-off between smoothness and sensitivity.
