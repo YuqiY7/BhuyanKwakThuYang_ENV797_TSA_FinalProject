@@ -1,0 +1,24 @@
+---
+title: "Forecasting Unemployment Trends: A Comparative Time Series Analysis of Colombia
+  and the United States"
+author: "Aye Nyein Thu, Mazhar Bhuyan, Yuqi Yang, Jisup Kwak"
+date: "2025-04-20"
+output: pdf_document
+---
+
+### 1.1 Introduction
+
+
+
+### 1.2 Motivation
+
+
+
+### 1.3 Relevance
+
+
+
+### 1.4 Objectives
+
+
+

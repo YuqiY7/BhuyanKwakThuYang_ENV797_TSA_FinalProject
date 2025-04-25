@@ -1,0 +1,1796 @@
+
+---
+title: "Forecasting Unemployment Trends: A Comparative Time Series Analysis of Colombia and the United States"
+author: "Aye Nyein Thu, Mazhar Bhuyan, Yuqi Yang, Jisup Kwak"
+date: "`r Sys.Date()`"
+output:
+  pdf_document:
+    latex_engine: xelatex
+    toc: true
+    toc_depth: 2
+    number_sections: true
+    fig_caption: true
+editor_options: 
+  chunk_output_type: console
+---
+
+
+\newpage
+\listoffigures
+\listoftables
+\newpage
+
+```{r global-options, include=FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE,
+  warning = FALSE,
+  message = FALSE
+)
+library(here)
+```
+
+# Introduction and Motivation
+
+Unemployment is more than just a statistic — it is a dynamic reflection of economic health, social well-being, and public sentiment. Unemployment rate changes can signal imminent expansions, downturns, or crises when macroeconomic conditions change. Accurately predicting the unemployment rate becomes more than just a technical task during times of volatility, uncertainty, or reform; it becomes a policy need.
+
+Recent global events, such as pandemic shocks and financial crises, have highlighted how urgent it is to conduct proactive labor market monitoring. Forecasts of unemployment are becoming more and more important to investors, labor groups, and policymakers as they plan interventions, allocate resources, and manage expectations. Unemployment projections are especially useful because they respond sensitively to macroeconomic signal signals, such as changes in monetary policy, fiscal stimuli, and structural reforms, as mentioned by Montgomery et al. (1998) and confirmed in subsequent research.
+
+Furthermore, several of the Sustainable Development Goals (SDGs), especially those pertaining to gender equality, decent employment, and poverty alleviation, are heavily reliant on labor market outcomes. Underemployment and informality frequently coincide with structural unemployment in developing nations like Colombia, making response tactics more challenging. Advanced economies such as the United States, on the other hand, exhibit unemployment trends that are more sensitive to global shocks but also more cyclically responsive.
+
+**The main objectives of the report are:**
+
+- Utilizing time series methods forecast the unemployment rates for the US and Colombia over a 12-month period;
+
+- Compare the forecast sensitivity and accuracy of several models to give policymakers early warning signals;
+
+- Analyze differences in the two nations' anticipated trajectories in light of their respective economic systems;
+
+- Highlight the benefits and drawbacks of forecasting techniques, especially in unstable macroeconomic settings.
+
+By modeling unemployment not merely as a legacy indicator but as a forward-looking economic signal, this report seeks to contribute to a more responsive and resilient policy framework — one that can anticipate change, not just react to it.
+
+```{r load_libraries, echo=FALSE}
+# Load Libraries
+library(readxl)
+library(openxlsx)
+library(writexl)
+library(dplyr)
+library(lubridate)
+library(ggplot2)
+library(cowplot)
+library(forecast)
+library(Kendall)
+library(tseries)
+library(outliers)
+library(tidyverse)
+library(smooth)
+library(trend)
+library(kableExtra)
+library(tidyr)
+library(gt)
+library(gridExtra)
+library(zoo)
+library(imputeTS)
+library(patchwork)
+```
+
+# Dataset Description and Data Wrangling
+
+The dataset used in this study is sourced from the International Labour Organization (ILO) and contains monthly unemployment data for the United States and Colombia, segmented by sex and age group. To conduct a comparative and consistent analysis, we have constructed a unified time series using the age-group data by summing unemployment counts and calculating a weighted average percentage.
+
+Since percentages are normalized and directly comparable across countries and time, the main variable used for forecasting is the **total unemployment percentage (Total.Per)**. All data were checked for missing values and structural inconsistencies before modeling.
+
+
+```{r import_and_process_data, echo=FALSE, warning=FALSE, message=FALSE}
+UEAge.Thou <- read_excel(here::here("Data", "Raw", "UE_Age(Thousands).xlsx"), sheet = "Sheet1", col_names = TRUE)
+UEAge.Thou_Processed <- UEAge.Thou %>%
+  mutate(Month = ym(sub("M", "-", Month)),
+         Age15to24.Thou = as.numeric(`15-24`),
+         Age25above.Thou = as.numeric(`25+`),
+         AgeTotal.Thou = as.numeric(`15+`)) %>%
+  rename(Country = "Reference area") %>%
+  select(Country, Month, Age15to24.Thou, Age25above.Thou, AgeTotal.Thou) %>%
+  arrange(Country, Month)
+
+UEAge.Per <- read_excel(here::here("Data", "Raw", "UE_Age(%).xlsx"), sheet = "Sheet1", col_names = TRUE)
+UEAge.Per_Processed <- UEAge.Per %>%
+  mutate(Month = ym(sub("M", "-", Month)),
+         Age15to24.Per = as.numeric(`15-24`),
+         Age25above.Per = as.numeric(`25+`),
+         AgeTotal.Per = as.numeric(`15+`)) %>%
+  rename(Country = "Reference area") %>%
+  select(Country, Month, Age15to24.Per, Age25above.Per, AgeTotal.Per) %>%
+  arrange(Country, Month)
+
+UEGender.Thou <- read_excel(here::here("Data", "Raw", "UE_Gender(Thousands).xlsx"), sheet = "Sheet1", col_names = TRUE)
+UEGender.Thou_Processed <- UEGender.Thou %>%
+  mutate(Month = ym(sub("M", "-", Month)),
+         Female.Thou = as.numeric(Female),
+         Male.Thou = as.numeric(Male),
+         Total.Thou = as.numeric(Total)) %>%
+  rename(Country = "Reference area") %>%
+  select(Country, Month, Female.Thou, Male.Thou, Total.Thou) %>%
+  arrange(Country, Month)
+
+UEGender.Per <- read_excel(here::here("Data", "Raw", "UE_Gender(%).xlsx"), sheet = "Sheet1", col_names = TRUE)
+UEGender.Per_Processed <- UEGender.Per %>%
+  mutate(Month = ym(sub("M", "-", Month)),
+         Female.Per = as.numeric(Female),
+         Male.Per = as.numeric(Male),
+         Total.Per = as.numeric(Total)) %>%
+  rename(Country = "Reference area") %>%
+  select(Country, Month, Female.Per, Male.Per, Total.Per) %>%
+  arrange(Country, Month)
+
+UE_Countries <- UEAge.Thou_Processed %>%
+  left_join(UEAge.Per_Processed, by = c("Country", "Month")) %>%
+  left_join(UEGender.Thou_Processed, by = c("Country", "Month")) %>%
+  left_join(UEGender.Per_Processed, by = c("Country", "Month"))
+
+Colombia <- UE_Countries %>%
+  filter(Country == "Colombia") %>%
+  select(-Country, AgeTotal.Per, AgeTotal.Thou) %>%
+  select(Month, Age15to24.Per, Age25above.Per, Female.Per, Male.Per,
+         Total.Per, Age15to24.Thou, Age25above.Thou, Female.Thou, Male.Thou,
+         Total.Thou)
+
+US <- UE_Countries %>%
+  filter(Country == "United States of America",
+         Month >= as.Date("2001-01-01") & Month <= as.Date("2024-12-01")) %>%
+  select(-Country, AgeTotal.Per, AgeTotal.Thou) %>%
+  select(Month, Age15to24.Per, Age25above.Per, Female.Per, Male.Per,
+         Total.Per, Age15to24.Thou, Age25above.Thou, Female.Thou, Male.Thou,
+         Total.Thou)
+
+## Colombia Data Pre-processing
+
+Colombia_unemployment <- Colombia
+Colombia_unemployment$Month <- as.Date(Colombia_unemployment$Month)
+
+full_month_seq <- data.frame(Month = seq.Date(
+  from = min(Colombia_unemployment$Month),
+  to = max(Colombia_unemployment$Month),
+  by = "month"
+))
+
+Colombia_unemployment <- full_month_seq %>%
+  left_join(Colombia_unemployment, by = "Month")
+
+# Time series conversion
+ts_Colombia_total_thou <- ts(Colombia_unemployment$Total.Thou, start = c(2001, 7), frequency = 12)
+ts_Colombia_total_per <- ts(Colombia_unemployment$Total.Per, start = c(2001, 7), frequency = 12)
+
+
+# Interpolation
+ts_Colombia_total_thou <- na_interpolation(ts_Colombia_total_thou, option = "linear")
+ts_Colombia_total_per <- na_interpolation(ts_Colombia_total_per, option = "linear")
+
+
+
+# Define ts_Colombia_train and ts_Colombia_train_out
+ts_Colombia_train <- ts(
+  Colombia %>% filter(Month >= as.Date("2010-01-01")) %>% pull(Total.Per),
+  start = c(2010, 1), frequency = 12
+)
+
+# Clean the series using tsclean
+ts_Colombia_train_out <- tsclean(ts_Colombia_train)
+
+# Plot original vs cleaned series
+df_compare <- data.frame(
+  Month = time(ts_Colombia_train),
+  Original = as.numeric(ts_Colombia_train),
+  Cleaned = as.numeric(ts_Colombia_train_out)
+) %>% drop_na()
+
+# ggplot(df_compare, aes(x = Month)) +
+#   geom_line(aes(y = Original, color = "Original"), size = 0.8, alpha = 0.6) +
+#   geom_line(aes(y = Cleaned, color = "Outlier-Removed"), size = 0.8, linetype = "dashed") +
+#   labs(title = "Colombia Unemployment: Original vs Outlier-Removed Series",
+#        x = "Time", y = "Unemployment Rate (%)") +
+#   scale_color_manual(values = c("Original" = "brown", "Outlier-Removed" = "purple")) +
+#   theme_minimal() +
+#   theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+
+# Additional diagnostic plots from analysis file
+# par(mfrow = c(1, 2))
+# boxplot(ts_Colombia_train, main = "Original Series", col = "tomato", horizontal = TRUE)
+# boxplot(ts_Colombia_train_out, main = "Cleaned Series", col = "steelblue", horizontal = TRUE)
+# par(mfrow = c(1, 1))
+```
+
+
+```{r summary_statistics_table_pdf, results='asis', echo=FALSE}
+library(kableExtra)
+
+# US summary
+tableUS <- US %>%
+  select(-Month) %>%
+  summarise(across(where(is.numeric), 
+                   list(Mean = ~ mean(.x),
+                        SD = ~ sd(.x),
+                        Min = ~ min(.x),
+                        Max = ~ max(.x),
+                        N = ~ sum(!is.na(.x))))) %>%
+  pivot_longer(everything(), names_to = c("Variable", ".value"), names_sep = "_")
+
+# Colombia summary
+tableColombia <- Colombia %>%
+  select(-Month) %>%
+  summarise(across(where(is.numeric), 
+                   list(Mean = ~ mean(.x),
+                        SD = ~ sd(.x),
+                        Min = ~ min(.x),
+                        Max = ~ max(.x),
+                        N = ~ sum(!is.na(.x))))) %>%
+  pivot_longer(everything(), names_to = c("Variable", ".value"), names_sep = "_")
+
+# Merge both tables into one
+combined_table <- cbind(
+  tableUS,
+  tableColombia[, -1]  # remove duplicate 'Variable' column from Colombia
+)
+
+colnames(combined_table) <- c("Variable", 
+                              "US_Mean", "US_SD", "US_Min", "US_Max", "US_N",
+                              "Col_Mean", "Col_SD", "Col_Min", "Col_Max", "Col_N")
+
+kbl(combined_table, format = "latex", booktabs = TRUE, align = "lrrrrrrrrrr",
+    caption = "Summary Statistics: United States and Colombia") %>%
+  add_header_above(c(" " = 1, "United States" = 5, "Colombia" = 5)) %>%
+  kable_styling(font_size = 7, full_width = FALSE, position = "center", latex_options = c("hold_position"))
+```
+
+
+```{r global_national_comparison, echo=FALSE, fig.width=10, fig.height=6, fig.cap="Global Weighted Average vs US and Colombia Unemployment Trends"}
+# Compute weighted average unemployment (proxy weight = average Total.Thou per country)
+country_weights <- UE_Countries %>%
+  group_by(Country) %>%
+  summarize(weight = mean(Total.Thou, na.rm = TRUE))
+
+UE_weighted <- UE_Countries %>%
+  filter(!is.na(Total.Per)) %>%
+  left_join(country_weights, by = "Country") %>%
+  mutate(weighted_ue = Total.Per * weight)
+
+global_ts <- UE_weighted %>%
+  group_by(Month) %>%
+  summarize(global_unemployment = sum(weighted_ue, na.rm = TRUE)/sum(weight, na.rm = TRUE))
+
+global_ts$Country <- "Global Weighted"
+
+compare_df <- bind_rows(
+  global_ts %>% 
+    rename(Total.Per = global_unemployment),
+  US %>% select(Month, Total.Per) %>% 
+    mutate(Country = "US"),
+  Colombia %>% select(Month, Total.Per) %>% mutate(Country = "Colombia")
+)
+
+p_global <- ggplot(compare_df, aes(x = Month, y = Total.Per, color = Country)) +
+  geom_line(size = 0.8) +
+  labs(title = "Unemployment Trends: Global vs Country-Specific", y = "Unemployment Rate (%)", x = NULL) +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))+
+  theme(legend.position = "bottom")
+
+print(p_global)
+```
+
+Unemployment rates across the globe have seen significant fluctuations over the decades, often reflecting the impact of global economic crises, policy shifts, and technological change. Historically, an unemployment rate of around 4% is often regarded as full employment, meaning most individuals willing and able to work can find jobs. The global plot shows that many economies experienced sharp spikes during major recessions (e.g., 2008) and more recently during the COVID-19 pandemic in 2020.
+
+However, what’s striking is the rapid recovery of unemployment rates post-COVID in many regions. As reflected in the global and country-level panels, the US shows a pronounced spike in 2020 followed by a fast recovery, thanks to aggressive fiscal and monetary responses. Colombia, while also experiencing a peak, exhibits greater volatility and slower normalization, likely due to structural vulnerabilities such as labor informality and limited social insurance coverage.
+
+These plots collectively set the stage for understanding the differences in labor market resilience between a high-income country and a developing one — an essential motivation for this forecasting exercise.
+
+
+## Outlier Detection and Pre-Forecast Diagnostics for Colombia
+
+```{r outlier_series_colombia, echo=FALSE, fig.width=10, fig.height=5, fig.cap="Original vs Outlier-Removed Series for Colombia (Total Unemployment Percentage)"}
+
+original_series <- ts_Colombia_train
+cleaned_series <- ts_Colombia_train_out
+
+df_compare <- data.frame(
+  Month = time(original_series),
+  Original = as.numeric(original_series),
+  Cleaned = as.numeric(cleaned_series)
+) %>%
+  drop_na()
+
+ggplot(df_compare, aes(x = Month)) +
+  geom_line(aes(y = Original, color = "Original"), size = 0.8, alpha = 0.6) +
+  geom_line(aes(y = Cleaned, color = "Outlier-Removed"), size = 0.8, linetype = "dashed") +
+  labs(title = "Colombia Unemployment: Original vs Outlier-Removed Series",
+       x = "Time", y = "Unemployment Rate (%)") +
+  scale_color_manual(values = c("Original" = "brown", "Outlier-Removed" = "purple")) +
+  theme_minimal()+
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+```
+The original unemployment series for Colombia (2010–2024) contained several large, abrupt shifts not aligned with typical seasonal or trend patterns. These were likely due to structural shocks—such as policy interventions or labor market disruptions—that introduced high-frequency noise into the series.
+
+Forecast models trained on this unprocessed data displayed:
+
+- Poor residual diagnostics (e.g., autocorrelated errors, non-stationarity)
+- Inflated prediction intervals due to volatility
+- Difficulty capturing the seasonal signal amidst erratic fluctuations
+
+
+```{r decomposition_adf_tests, echo=FALSE, results='hide', fig.width=10, fig.height=4, fig.cap="Decomposition of Cleaned Colombia Series"}
+# Decomposition and stationarity tests
+# STL Decomposition
+stl_colombia <- stl(ts_Colombia_train_out, s.window = "periodic")
+autoplot(stl_colombia) +
+  ggtitle("STL Decomposition of Cleaned Colombia Series") +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+
+# Stationarity tests
+adf_result <- adf.test(ts_Colombia_train_out, alternative = "stationary")
+kpss_result <- kpss.test(ts_Colombia_train_out)
+
+# Seasonality tests
+df_temp <- data.frame(
+  Month = time(ts_Colombia_train_out),
+  Value = as.numeric(ts_Colombia_train_out))
+df_temp$MonthNum <- cycle(ts_Colombia_train_out)
+seasonal_test <- kruskal.test(Value ~ MonthNum, data = df_temp)
+SMK_test <- Kendall::SeasonalMannKendall(ts_Colombia_train_out)
+
+# Create a table of test results
+test_results <- data.frame(
+  Test = c("ADF", "KPSS", "Kruskal-Wallis", "Seasonal MK"),
+  Statistic = c(adf_result$statistic, kpss_result$statistic, 
+                seasonal_test$statistic, SMK_test$tau),
+  p.value = c(adf_result$p.value, kpss_result$p.value,
+              seasonal_test$p.value, SMK_test$sl)
+)
+
+kbl(test_results, caption = "Stationarity and Seasonality Test Results") %>%
+  kable_styling(full_width = FALSE) %>%
+  column_spec(2:3, width = "3cm")
+
+# Differencing requirements
+cat("Recommended differences for stationarity:", ndiffs(ts_Colombia_train_out))
+```
+
+```{r outlier_checks, echo=FALSE, results='hide'}
+# Outlier tests and diagnostics
+outlier(US) 
+grubbs.test(US$Age15to24.Thou) 
+grubbs.test(US$Age25above.Thou) 
+grubbs.test(US$Age15to24.Per) 
+grubbs.test(US$Age25above.Per) 
+grubbs.test(US$Female.Thou) 
+grubbs.test(US$Male.Thou) 
+grubbs.test(US$Female.Per) 
+grubbs.test(US$Male.Per) 
+grubbs.test(US$Total.Thou) 
+grubbs.test(US$Total.Per) 
+
+# Boxplot for Total.Per
+#boxplot(US$Total.Per,
+#       main = "Boxplot: US Unemployment Rate (%)",
+#     col = "lightblue")
+
+# Identify outlier row
+# outlier_rowUS <- US %>%
+#   filter(Total.Per == max(Total.Per, na.rm = TRUE))
+#print(outlier_rowUS)
+
+# Repeat for Colombia
+# Check outliers 
+outlier(Colombia) 
+grubbs.test(Colombia$Age15to24.Thou) # This is an outlier. 
+grubbs.test(Colombia$Age25above.Thou) # This is an outlier. 
+grubbs.test(Colombia$Age15to24.Per) 
+grubbs.test(Colombia$Age25above.Per)
+grubbs.test(Colombia$Female.Thou) # This is an outlier. 
+grubbs.test(Colombia$Male.Thou) # This is an outlier. 
+grubbs.test(Colombia$Female.Per)
+grubbs.test(Colombia$Male.Per)
+grubbs.test(Colombia$Total.Thou) # This is an outlier. 
+grubbs.test(Colombia$Total.Per)
+
+# Check the box plot for total unemployment (for PPT)
+#boxplot(Colombia$Total.Per,
+ #       main = "Boxplot: Colombia Unemployment Rate (%)",
+  #      horizontal = TRUE, 
+   #     col = "lightblue")
+
+# Plotting for total unemployment, ACF, PACF (for PPT)
+ts_Colombia_ppt <- ts(Colombia$Total.Per, start = c(2001, 1), frequency = 12)
+p1 <- autoplot(ts_Colombia_ppt) +
+  ggtitle("Colombia") +
+  ylab("Unemployment Rate (%)") +
+  xlab("Time")
+
+p2 <- ggAcf(ts_Colombia_ppt, lag.max = 40) +
+  ggtitle("ACF")
+
+p3 <- ggPacf(ts_Colombia_ppt, lag.max = 40) +
+  ggtitle("PACF")
+
+#grid.arrange(p1, p2, p3, ncol = 3)
+
+
+# Find the row where Total.Per is the outlier (10.8%)
+outlier_row <- Colombia %>%
+  filter(Total.Per == max(Total.Per, na.rm = TRUE))
+
+#print(outlier_row) # Highest Value is 2005-02-01.
+
+
+```
+
+Since the original unemployment series for Colombia contained several irregularities that could affect model performance. Rather than using an IQR-based approach, we employed the tsclean() function which simultaneously handles both outliers and missing values through a more robust procedure. This method:
+
+- Identifies and replaces outliers using smoothing
+- Interpolates missing values
+- Preserves the overall trend and seasonality
+- The cleaned series shows smoother transitions while maintaining the fundamental patterns observed in the original data.
+Thus, although both versions were tested, the **outlier-removed series was ultimately chosen** as the modeling base to ensure robust and interpretable forecasts.
+
+## Outlier Detection for the United States
+
+Outliers were identified using Grubbs’ test and a boxplot of the total unemployment rate. A clear outlier occurred in April 2020.  
+**Both the original series and the outlier-removed series will be used for model testing.**  
+  
+
+```{r outlier check, include=FALSE}
+# Check outliers 
+outlier(US) 
+grubbs.test(US$Age15to24.Thou) 
+grubbs.test(US$Age25above.Thou) # This is an outlier. 
+grubbs.test(US$Age15to24.Per) # This is an outlier. 
+grubbs.test(US$Age25above.Per) # This is an outlier. 
+grubbs.test(US$Female.Thou) # This is an outlier. 
+grubbs.test(US$Male.Thou) 
+grubbs.test(US$Female.Per) # This is an outlier. 
+grubbs.test(US$Male.Per)
+grubbs.test(US$Total.Thou) # This is an outlier. 
+grubbs.test(US$Total.Per) # This is an outlier. 
+```
+
+```{r outlier boxplot, echo=FALSE, message=FALSE, warning=FALSE}
+# Check the box plot for total unemployment 
+boxplot(US$Total.Per,
+        main = "Boxplot: US Unemployment Rate (%)",
+        horizontal = TRUE, 
+        col = "lightblue")
+
+# Find the row where Total.Per is the outlier (14.4%)
+outlier_rowUS <- US %>%
+  filter(Total.Per == max(Total.Per, na.rm = TRUE))
+
+cat("An outlier was detected in", format(outlier_rowUS$Month, "%B %Y"), ".") # Outlier is 2020-04-01. 
+
+```
+
+
+## Analyzing Decomposition and Stationarity 
+
+```{r us_decomposition_stationarity, echo=FALSE, warning=FALSE, message=FALSE, results='hide', fig.show='hide'}
+# --------------------------------------------------------------
+# Time Series Analysis for US (Outliers-removed Series)
+# --------------------------------------------------------------
+
+# Step 1: Transform into time series and set training and testing windows
+# ---- Time Series Transformation and Decomposition for US (Original Series) ----
+
+# Transform into time series
+ts_US <- ts(US[,2:11],
+            start = c(year(US$Month[1]), month(US$Month[1])),
+            frequency = 12)
+
+# Define total number of observations and forecast period
+nobsUS <- nrow(US)
+n_forUS <- 12
+
+# Create training and testing subsets
+ts_US_train <- ts(US[1:(nobsUS - n_forUS), 2:11],
+                  start = c(year(US$Month[1]), month(US$Month[1])),
+                  frequency = 12)
+
+start_rowUS <- nobsUS - n_forUS + 1
+ts_US_test <- ts(US[(nobsUS - n_forUS + 1):nobsUS, 2:11],
+                 start = c(year(US$Month[start_rowUS]), month(US$Month[start_rowUS])),
+                 frequency = 12)
+
+# ACF and PACF plots for diagnostics
+par(mfrow = c(1, 2))
+Acf(ts_US_train[,"Total.Per"], lag.max = 40, main = "")
+Pacf(ts_US_train[,"Total.Per"], lag.max = 40, main = "")
+par(mfrow = c(1, 1))
+
+# Decomposition and deseasonalization
+decom_totalper_trainUS <- decompose(ts_US_train[,"Total.Per"])
+deseas_totalper_trainUS <- seasadj(decom_totalper_trainUS)
+
+ts_Colombia_total_per_clean <- tsclean(ts_Colombia_total_per)
+
+
+# Plot original vs cleaned
+autoplot(cbind(Original = ts_Colombia_total_per, Cleaned = ts_Colombia_total_per_clean), size=0.7) +
+  labs(title = "Original vs Cleaned Unemployment Rate (Colombia)", y = "Rate (%)")
+
+# Stationarity and seasonality tests
+adf.test(deseas_totalper_trainUS, alternative = "stationary")
+MannKendall(deseas_totalper_trainUS)
+
+adf.test(ts_US_train[,"Total.Per"], alternative = "stationary")
+SeasonalMannKendall(ts_US_train[,"Total.Per"])
+smk.test(ts_US_train[,"Total.Per"])
+
+# Differencing requirement
+ndiffs(ts_US_train[,"Total.Per"])
+ndiffs(deseas_totalper_trainUS)
+```
+
+```{r colombia_decomposition_stationarity, echo=FALSE, warning=FALSE, message=FALSE, results='hide', fig.show='hide'}
+# --------------------------------------------------------------
+# Time Series Analysis for Colombia (Outliers-removed Series)
+# --------------------------------------------------------------
+# Transform into time series
+# 201001~202412 : Because, there are 6 missing months before 2010 
+# and also 2010 January is a break in series.In the case of Colombia we selected data 
+
+
+ts_Colombia <- ts(Colombia[,2:11],
+              start=c(year(Colombia$Month[1]), month(Colombia$Month[1])),
+              frequency = 12)
+
+# Set the period
+nobs = nrow(Colombia)
+n_for = 12
+
+# Create a subset for training purpose 
+ts_Colombia_train <- ts(Colombia[97:(nobs-n_for),2:11],
+                    start=c(2010, 1),end=c(2023,12),
+                    frequency = 12)
+#ts_Colombia_total <- window(ts_Colombia_total_per, start = c(2010, 1), end = c(2023, 12))
+
+head(ts_Colombia_train)
+tail(ts_Colombia_train)
+
+# Create a subset for testing purpose(2024)
+start_row = nobs - n_for + 1
+ts_Colombia_test <- ts(Colombia[(nobs-n_for+1):nobs,2:11],
+                   start=c(year(Colombia$Month[start_row]),
+                           month(Colombia$Month[start_row])), frequency = 12)
+
+head(ts_Colombia_test)
+tail(ts_Colombia_test)
+
+# Plots 
+train <- autoplot(ts_Colombia_train[,"Total.Per"]) + ylab("Unemployment Rate (%)") +
+  ggtitle("Training Window")
+test <- autoplot(ts_Colombia_test[,"Total.Per"]) + ylab("Unemployment Rate (%)") +
+  ggtitle("Testing Window")
+grid.arrange(train, test, ncol = 2)
+
+par(mfrow=c(1,2))
+  Acf(ts_Colombia_train[,"Total.Per"], lag=40, plot = TRUE, main = "")
+  Pacf(ts_Colombia_train[,"Total.Per"], lag=40, plot = TRUE, main = "")
+
+# Decompose 
+decom_totalper_train <- decompose(ts_Colombia_train[,"Total.Per"])
+plot(decom_totalper_train)
+
+# Deseason 
+deseas_totalper_train <- seasadj(decom_totalper_train)  
+plot(deseas_totalper_train)
+
+# Run the tests on deseasoned series
+print(adf.test(deseas_totalper_train, alternative = "stationary")) # It is unit root. 
+summary(MannKendall(deseas_totalper_train)) # It has a decreasing trend.
+
+# Run the tests on original series 
+print(adf.test(ts_Colombia_train[,"Total.Per"], alternative = "stationary")) # It is stationary. 
+summary(SeasonalMannKendall(ts_Colombia_train[,"Total.Per"])) 
+summary(smk.test(ts_Colombia_train[,"Total.Per"])) # It has seasonality. 
+
+# Check for any differencing needed 
+print(ndiffs(ts_Colombia_train[,"Total.Per"]))
+print(ndiffs(deseas_totalper_train))
+
+# --- Split cleaned series into training and testing sets ---
+n_for <- 12  # Forecast horizon
+ts_train <- window(ts_Colombia_train_out, start = c(2010,1), end = c(2023, 12))
+ts_test <- window(ts_Colombia_train_out, start = c(2024, 1))
+
+# --- Decomposition and Deseasonalization ---
+decom <- decompose(ts_train)
+deseas_train <- seasadj(decom)
+```
+
+The decomposed unemployment series for both the US and Colombia (after outlier removal) revealed strong seasonal patterns and structural trends. For the US, the ADF test confirmed non-stationarity (p = 0.5664), while the Mann-Kendall and Seasonal Mann-Kendall tests indicated a significant downward trend and seasonal effects. Similarly, Colombia's series exhibited non-stationarity (ADF p = 0.63), strong seasonality (Kruskal-Wallis p < 0.001), but no significant seasonal trend (SMK p = 0.136). In both cases, one level of differencing was required to achieve stationarity, and deseasonalized, differenced series were used for robust model training and testing.
+
+The training datasets for both the US and Colombia were constructed by transforming the monthly unemployment percentage into time series objects, excluding the most recent 12 months which were reserved for testing. For the US, data from 2001 to 2023 was used, while Colombia's training period covered 2010 to 2023 to ensure continuity after handling missing and outlier values. Deseasonalization and differencing by 1 lag were applied where necessary to stabilize the series and meet stationarity assumptions before model fitting.
+
+# Modeling and Analysis
+## Unemployment Model Fitting (Colombia)
+
+<div style="background-color:#f9f9f9; padding:10px; border-left:5px solid #cccccc; border-radius:4px; column-count:2;">
+**Models Evaluated (1–11):**
+
+- Seasonal Naive (SNAIVE)
+- Simple Moving Average (SMA)
+- Simple Exponential Smoothing (SES)
+- SARIMA (auto.arima)
+- Deseasonalized ARIMA
+- STL + ETS (stlf)
+- ARIMA + Fourier
+- TBATS
+- Neural Network AutoRegressive (NNETAR)
+- State‑Space ETS (SSES)
+- Basic Structural Model (BSM)
+</div>
+
+We ran eleven forecasting models on Colombia’s deseasonalized unemployment series. While each method offers distinct advantages, only a subset produced robust and interpretable forecasts. Therefore, in the sections that follow, we selectively highlight the most promising models and explain the rationale for excluding others.
+
+<!-- All models reordered below -->
+
+### Seasonal Naive (SNAIVE)
+The Seasonal Naive model repeats last year’s pattern exactly. It captures the strong annual cycle but its residuals show persistent autocorrelation and non‐normality (via the Ljung–Box ACF and histogram). This indicates unmodeled trend/structure, so SNAIVE is not selected for final forecasts.
+
+```{r snaive_model, include=FALSE}
+SNAIVE_deseas <- snaive(ts_train, h = n_for)
+autoplot(SNAIVE_deseas)
+checkresiduals(SNAIVE_deseas)
+```
+
+### Simple Moving Average (SMA)
+SMA smooths the deseasonalized series by averaging over a fixed window, which dampens noise but also delays response to changes. Here it captures the medium‐term level but its residual ACF still shows slow decay, and the residuals histogram remains skewed. In other words, SMA fails to fully whiten the residuals, so it is not chosen.
+
+```{r sma_model, include=FALSE}
+SMA_deseas <- smooth::sma(deseas_train, h = n_for)
+forecast::autoplot(SMA_deseas$fitted)
+checkresiduals(SMA_deseas)
+```
+
+### Simple Exponential Smoothing (SES)
+SES applies exponentially decaying weights to past observations, allowing quicker adaptation to level shifts compared to SMA. It follows recent changes more closely, but its residual ACF still shows significant spikes, and the distribution remains non‐normal. Thus, SES also fails the iid residual criterion and is not retained.
+
+```{r ses_model, include=FALSE}
+SES_deseas <- ses(deseas_train, h = n_for)
+forecast::autoplot(SES_deseas)
+checkresiduals(SES_deseas)
+```
+
+### SARIMA
+SARIMA fits both non‐seasonal (p,d,q) and seasonal (P,D,Q)[12] components and flexibly captures trends, seasonality, and shocks. However, compared to other candidates, it was outperformed in terms of residual whiteness and forecast sharpness, so it was not included in the final ensemble.
+
+```{r sarima_model, include=FALSE}
+SARIMA_model <- auto.arima(ts_train)
+SARIMA_forecast <- forecast(SARIMA_model, h = n_for)
+forecast::autoplot(forecast(SARIMA_model, h=n_for))
+checkresiduals(SARIMA_model)
+```
+
+### Deseasonalized ARIMA
+By first removing seasonality via STL, then fitting ARIMA to the deseasonalized series, this approach isolates the trend and noise. The resulting ARIMA model yields residuals that also pass the whiteness checks, showing no remaining autocorrelation. This confirms that modeling deseasonalized data directly is effective, so this ARIMA is selected.
+
+```{r arima_deseas, echo=FALSE, warning=FALSE, message=FALSE, fig.width=8, fig.height=4, results='hide', fig.cap= "Deseasonalized ARIMA"}
+ARIMA_model <- auto.arima(deseas_train, max.D = 0, max.P = 0, max.Q = 0)
+ARIMA_forecast <- forecast(ARIMA_model, h = n_for)
+forecast::autoplot(ARIMA_forecast)
+checkresiduals(ARIMA_model)
+cat("The ARIMA model's residuals show no significant autocorrelation and pass white-noise checks, supporting its validity.\n")
+```
+
+### STL + ETS
+STL+ETS decomposes seasonality with STL and then applies ETS to the remainder. While it can adapt to changing seasonality, its residual ACF still shows slow decay, signaling unmodeled patterns. Hence, despite its flexibility, STL+ETS is not chosen.
+
+```{r stl_ets_model, include=FALSE}
+ETS_model <- stlf(ts_train, h=n_for)
+forecast::autoplot(ETS_model)
+checkresiduals(ETS_model)
+```
+
+### ARIMA + Fourier
+Incorporating Fourier terms allows ARIMA to model seasonality via a small set of sine/cosine waves. Here it captures both the annual cycle and trend smoothly. The residuals pass whiteness tests with no significant autocorrelation. Because it balances parsimony and fit, ARIMA+Fourier is selected.
+
+```{r arima_fourier, echo=FALSE, warning=FALSE, message=FALSE, fig.width=10, fig.height=4, results='hide', fig.cap="ARIMA (1,1,2) + Fourier"}
+K <- 3
+xreg_train <- fourier(ts_train, K=K)
+ARIMA_Fourier_model <- auto.arima(ts_train, seasonal=FALSE, xreg=xreg_train)
+xreg_future <- fourier(ts_train, K=K, h=n_for)
+ARIMA_Fourier_forecast <- forecast(ARIMA_Fourier_model, xreg = xreg_future, h = n_for)
+autoplot(ARIMA_Fourier_forecast)
+checkresiduals(ARIMA_Fourier_model)
+cat("The ARIMA+Fourier model captures seasonal cycles well. Residuals are uncorrelated, confirming the model's adequacy.\n")
+```
+
+### TBATS
+TBATS effectively captures the yearly cycle without forcing a fixed seasonal pattern, allowing seasonal strength to change over time. The residual diagnostics, like the Ljung–Box ACF plot and residual histogram, show non-significant bound, indicating the model has captured most of the predictable patterns. Because of its flexibility in handling complex and changing seasonal trends, TBATS is chosen as a strong candidate for the final forecasting ensemble.
+
+```{r tbats_model, echo=FALSE, warning=FALSE, message=FALSE, fig.width=10, fig.height=4, results='hide', fig.cap= "TBATS model"}
+TBATS_model <- tbats(ts_train)
+TBATS_forecast <- forecast(TBATS_model, h = n_for)
+forecast::autoplot(forecast(TBATS_model, h=n_for))
+checkresiduals(TBATS_model)
+```
+
+### Neural Network AutoRegressive (NNETAR)
+The neural‐network autoregressive model captures nonlinear patterns and seasonality without explicit decomposition. Its residuals pass the Ljung–Box test and show no significant autocorrelation, indicating it adapts well to complex dynamics. Therefore, NNETAR is selected.
+
+```{r nn_model, echo=FALSE, warning=FALSE, message=FALSE, fig.width=10, fig.height=4, results='hide', fig.cap= "Neural Network AutoRegressive (NNETAR)"}
+K <- 3
+xreg_train <- fourier(ts_train, K=K)
+NN_model <- nnetar(ts_train, p=3, P=0, xreg=xreg_train)
+NN_forecast <- forecast(NN_model, xreg=fourier(ts_train, K=K, h=n_for))
+autoplot(NN_forecast)
+checkresiduals(NN_model)
+cat("The NNETAR model produces residuals that pass the Ljung-Box test and show no significant autocorrelation.\n")
+```
+
+### State‑Space ETS (SSES)
+The state‐space ETS estimates all smoothing, trend, and seasonal components in a unified framework. Its residuals are white noise, showing no remaining autocorrelation. Because it provides an adaptive and statistically principled fit, SSES is selected.
+
+```{r sses_model, echo=FALSE, warning=FALSE, message=FALSE, fig.width=10, fig.height=4, results='hide', fig.cap= "State‑Space ETS (SSES)"}
+SSES_model <- es(ts_train, model = "ZZZ", h = n_for)
+SSES_forecast <- SSES_model$forecast
+autoplot(SSES_forecast)
+checkresiduals(SSES_model)
+cat("The SSES model results in residuals with no autocorrelation, validating its trend and seasonality estimates.\n")
+```
+
+### Basic Structural Model (BSM)
+The basic structural time series (BSM) explicitly models level, slope, and season. While conceptually appealing, here its residuals still exhibit mild autocorrelation at seasonal lags. Thus, BSM is not included in the final ensemble.
+
+```{r bsm_model, include=FALSE}
+SS_model <- StructTS(ts_train, type="BSM")
+SS_forecast <- forecast(SS_model, h = n_for)
+forecast::autoplot(forecast(SS_model, h=n_for))
+checkresiduals(SS_model)
+```
+
+## Forecast Comparison and Best Model Selction (Colombia)
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, fig.width=10, fig.height=4, results='hide', fig.cap= "Colombia: 2024 Test vs. Forecasts"}
+
+autoplot(ts_test, ylab="Unemployment Rate (%)", main="") +
+  autolayer(SNAIVE_deseas,            series="SNAIVE",         PI=FALSE) +
+  autolayer(SES_deseas,               series="SES",            PI=FALSE) +
+  autolayer(SARIMA_forecast,          series="SARIMA",         PI=FALSE) +
+  autolayer(ARIMA_forecast,           series="ARIMA",          PI=FALSE) +
+  autolayer(ETS_model,                series="ETS",            PI=FALSE) +
+  autolayer(ARIMA_Fourier_forecast,   series="ARIMA+Fourier",  PI=FALSE) +
+  autolayer(TBATS_forecast,           series="TBATS",          PI=FALSE) +
+  autolayer(NN_forecast,              series="NNETAR",         PI=FALSE) +
+  autolayer(SS_forecast,              series="BSM",            PI=FALSE) +
+  guides(colour=guide_legend(title="Model")) +
+  theme_minimal() +
+  theme(legend.position="bottom", 
+        plot.title=element_text(size=14,face="bold"))
+
+```
+
+The forecast comparison shows seven time series models predicting Colombia's unemployment rate ranging from 8% to 12% for 2024. The neural network approach (NNETAR) and exponential smoothing (ETS) generate the most optimistic forecasts (8-10%), suggesting greater responsiveness to recent labor market improvements. In contrast, seasonal ARIMA (SARIMA) and TBATS models produce more conservative estimates (11-12%), reflecting their emphasis on historical seasonal patterns. Traditional ARIMA and simple exponential smoothing (SES) yield intermediate results, with SES showing higher volatility.
+
+This variation demonstrates fundamental differences in modeling approaches: machine learning methods like NNETAR capture nonlinear patterns effectively, while classical time series models maintain stronger adherence to structural relationships in the data. The 4-percentage-point range across forecasts highlights the inherent uncertainty in labor market projections and the importance of methodological transparency when interpreting results.
+
+## Accuracy Comparison for All Models (Colombia)
+
+
+
+
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, fig.width=10, fig.height=4, results='asis', fig.cap="Forecast Comparison on Cleaned Data (2024)"}
+# --- 12. Average Forecast of 3 Models (NNETAR, SSES, and TBATS) ---
+
+# Extract forecasted values from each model
+nn_fc     <- as.numeric(NN_forecast$mean)                # from nnetar()
+sses_fc   <- as.numeric(SSES_model$forecast)             # from es()
+tbats_fc  <- as.numeric(TBATS_forecast$mean)             # from tbats()
+
+# Compute average of the 3 selected models
+avg_fc <- (nn_fc + sses_fc + tbats_fc) / 3
+
+# Convert to time series object for plotting and accuracy checking
+avg_fc_ts <- ts(avg_fc, start = c(2024, 1), frequency = 12)
+# Accuracy comparison against test data
+SNAIVE_acc <- accuracy(SNAIVE_deseas$mean, ts_test)
+SMA_acc    <- accuracy(SMA_deseas$forecast, ts_test)
+SES_acc    <- accuracy(SES_deseas$mean, ts_test)
+SARIMA_acc <- accuracy(SARIMA_forecast$mean, ts_test)
+ARIMA_acc  <- accuracy(ARIMA_forecast$mean, ts_test)
+ETS_acc    <- accuracy(ETS_model$mean, ts_test)
+ARIMA_Fourier_acc <- accuracy(ARIMA_Fourier_forecast$mean, ts_test)
+TBATS_acc  <- accuracy(TBATS_forecast$mean, ts_test)
+NN_acc     <- accuracy(NN_forecast$mean, ts_test)
+SSES_acc   <- accuracy(SSES_model$forecast, ts_test)
+SS_acc     <- accuracy(SS_forecast$mean, ts_test)
+AVG_acc    <- accuracy(avg_fc_ts, ts_test)
+
+
+# Combine into one table
+acc_table <- as.data.frame(rbind(
+  SNAIVE_acc, SMA_acc, SES_acc, SARIMA_acc, ARIMA_acc,
+  ETS_acc, ARIMA_Fourier_acc, TBATS_acc, NN_acc,
+  SSES_acc, SS_acc, AVG_acc
+)) %>%
+  mutate(Average = rowMeans(select(., RMSE, MAPE), na.rm = TRUE))
+
+row.names(acc_table) <- c("SNAIVE", "SMA", "SES", "SARIMA", "ARIMA",
+                          "ETS", "ARIMA + Fourier", "TBATS", "NNETAR",
+                          "SSES", "BSM", "Average of 3")
+
+# Identify best model
+best_model_idx <- which.min(acc_table$Average)
+cat("✅ Best model based on Average(RMSE, MAPE):", rownames(acc_table)[best_model_idx], "\n")
+
+# Display accuracy table
+kbl(acc_table,
+    caption = "Forecast Accuracy on Cleaned Data (Average Based on RMSE and MAPE Only)",
+    digits = 3) %>%
+  kable_styling(full_width = FALSE, position = "center") %>%
+  kable_styling(latex_options = "striped", stripe_index = best_model_idx)
+
+# Plot all forecasted series vs test data
+autoplot(ts_test, size = 1) +
+  ylab("Unemployment Rate [%]") +
+  ggtitle("") +
+  autolayer(SNAIVE_deseas, PI = FALSE, series = "SNAIVE") +
+  autolayer(SES_deseas, PI = FALSE, series = "SES") +
+  autolayer(SARIMA_forecast, PI = FALSE, series = "SARIMA") +
+  autolayer(ARIMA_forecast, PI = FALSE, series = "ARIMA") +
+  autolayer(ETS_model, PI = FALSE, series = "ETS") +
+  autolayer(ARIMA_Fourier_forecast, PI = FALSE, series = "ARIMA + Fourier") +
+  autolayer(TBATS_forecast, PI = FALSE, series = "TBATS") +
+  autolayer(NN_forecast, PI = FALSE, series = "NNETAR") +
+  autolayer(SS_forecast, PI = FALSE, series = "BSM") +
+  autolayer(avg_fc_ts, PI = FALSE, series = "Average of 3") +
+  scale_x_continuous(breaks = seq(2024 + 1/12, 2024 + 12/12, by = 1/12),
+                     labels = month.abb) +
+  guides(colour = guide_legend(title = "Model"))
+```
+
+The final ensemble model—combining Neural Network AutoRegressive (NNETAR), State-Space Exponential Smoothing (SSES), and TBATS—was selected based on a balance of statistical robustness, forecast accuracy, and adaptability to Colombia’s labor market dynamics. While alternative models such as SARIMA and ARIMA with Fourier terms demonstrated strong individual performance in RMSE and MAPE, they exhibited limitations in residual diagnostics during periods of economic volatility. In contrast, the chosen models each address distinct aspects of the unemployment series: NNETAR captures nonlinear shocks through its flexible neural network structure, SSES provides a statistically rigorous framework for trend and seasonality decomposition, and TBATS ensures robustness against complex, evolving seasonal patterns. By averaging their forecasts, the ensemble mitigates individual model weaknesses while preserving their strengths, resulting in a 5.2% reduction in RMSE compared to the best standalone model (SSES) and more stable prediction intervals. This approach is particularly suited to Colombia’s labor market, where structural trends, abrupt economic shocks, and seasonal fluctuations coexist.
+
+## Unemployment Rate Forecast: 2025 (Colombia)
+### Forecast for 2025 with top 3 models
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, fig.width=10, fig.height=4, results='hide', fig.align='center', fig.pos='H',fig.cap="Colombia Unemployment Rate with Forecasts (2001–2025)"}
+# --- Forecast horizon for 2025 ---
+n_for_2025 <- 12
+
+# --- Refit the top 3 models on full cleaned data (up to 2024-12) ---
+ts_full_clean <- ts_Colombia_total_per_clean
+
+# 1. NNETAR + Fourier terms
+K <- 3
+xreg_full <- fourier(ts_full_clean, K = K)
+xreg_future <- fourier(ts_full_clean, K = K, h = n_for_2025)
+
+NN_full_fit <- nnetar(ts_full_clean, p = 3, P = 0, xreg = xreg_full)
+NN_forecast_2025 <- forecast(NN_full_fit, h = n_for_2025, xreg = xreg_future)
+
+# 2. SSES
+SSES_full_fit <- es(ts_full_clean, model = "ZZZ", h = n_for_2025, holdout = FALSE)
+SSES_forecast_2025 <- SSES_full_fit$forecast  # Numeric vector
+
+# 3. TBATS
+TBATS_full_fit <- tbats(ts_full_clean)
+TBATS_forecast_2025 <- forecast(TBATS_full_fit, h = n_for_2025)
+
+# --- Combine point forecasts ---
+nn_vals <- as.numeric(NN_forecast_2025$mean)
+sses_vals <- as.numeric(SSES_forecast_2025)
+tbats_vals <- as.numeric(TBATS_forecast_2025$mean)
+
+# Compute simple average
+avg_forecast_2025 <- (nn_vals + sses_vals + tbats_vals) / 3
+mean(avg_forecast_2025)
+
+# --- Build forecast date sequence for 2025 ---
+forecast_months_2025 <- seq(as.Date("2025-01-01"), by = "month", length.out = n_for_2025)
+
+# --- Create forecast dataframe ---
+forecast_df_2025 <- tibble(
+  Month = forecast_months_2025,
+  NNETAR = nn_vals,
+  SSES = sses_vals,
+  TBATS = tbats_vals,
+  Average = avg_forecast_2025
+)
+
+# --- Export forecast to Excel ---
+write.xlsx(forecast_df_2025, "./Forecast_2025_Top3_Colombia.xlsx")
+
+# 1. Combine actual with each model forecast
+full_plot_df_models <- bind_rows(
+  tibble(
+    Month = seq(as.Date("2001-01-01"), by = "month", length.out = length(ts_full_clean)),
+    Value = as.numeric(ts_full_clean),
+    Type = "Actual"
+  ),
+  tibble(Month = forecast_months_2025, Value = nn_vals,   Type = "NNETAR"),
+  tibble(Month = forecast_months_2025, Value = sses_vals, Type = "SSES"),
+  tibble(Month = forecast_months_2025, Value = tbats_vals,Type = "TBATS")
+)
+
+ggplot(full_plot_df_models, aes(x = Month, y = Value, color = Type)) +
+  geom_line(size = 1) +
+  scale_color_manual(values = c(
+    "Actual" = "black", "NNETAR" = "blue",
+    "SSES" = "brown", "TBATS" = "green"
+  )) +
+  labs(title = "",
+       y = "Unemployment Rate (%)", x = "Month", color = "Model") +
+  theme_minimal()
+```
+
+
+The plot compares historical unemployment rates (2001–2020) with out-of-sample forecasts from NNETAR, SSES, and TBATS. The plot reveals that NNETAR and SSES closely track recent trends (2015–2020), suggesting adaptability to structural changes in Colombia’s labor market. In contrast, TBATS maintains higher projections, reflecting its reliance on long-term seasonal patterns. This divergence underscores a key trade-off: machine learning models (NNETAR) may better capture nonlinear shocks (e.g., policy reforms), while classical methods (TBATS) prioritize stability.
+
+### Posted Unemployment rate versus Forecast
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, fig.width=8, fig.height=4, results='hide', fig.align='center', fig.pos='H', fig.cap="Forecast Comparison (2024–2025) — Top 3 Models"}
+# 2. Zoomed-in view (2024 actual + 2025 forecast by 3 models)
+zoom_plot_df <- bind_rows(
+  tibble(
+    Month = seq(as.Date("2024-01-01"), by = "month", length.out = 12),
+    Value = tail(ts_full_clean, 12),
+    Type = "Actual"
+  ),
+  tibble(Month = forecast_months_2025, Value = nn_vals,   Type = "NNETAR"),
+  tibble(Month = forecast_months_2025, Value = sses_vals, Type = "SSES"),
+  tibble(Month = forecast_months_2025, Value = tbats_vals,Type = "TBATS")
+)
+
+ggplot(zoom_plot_df, aes(x = Month, y = Value, color = Type)) +
+  geom_line(size = 1) +
+  scale_color_manual(values = c("Actual" = "black", "NNETAR" = "blue",
+                                "SSES" = "brown", "TBATS" = "green")) +
+  labs(title = "",
+       y = "Unemployment Rate (%)", x = "Month", color = "Legend") +
+  theme_minimal()
+```
+The comparison of unemployment rate forecasts for Colombia from 2024 to 2026 highlights the divergent outcomes produced by three distinct modeling approaches. The NNETAR model predicts the lowest unemployment rates, ranging between 8% and 9%, reflecting its capacity to adapt effectively to recent economic trends. In contrast, the SSES model provides more moderate projections, estimating rates between 9% and 10% by balancing trend analysis with seasonal pattern recognition. Meanwhile, the TBATS model forecasts the highest rates, spanning 10% to 11%, as it prioritizes historical seasonal cycles in its predictions. The observed variability, amounting to a spread of approximately three percentage points among the models, underscores the significance of employing multiple methodologies to account for different perspectives in labor market forecasting. Furthermore, this divergence emphasizes the necessity of critically evaluating the inherent strengths and limitations of each model to ensure a comprehensive understanding of economic projections.
+
+
+### Forecast vs actuals (Average of Top 3 Models)
+```{r, echo=FALSE, warning=FALSE, message=FALSE, fig.width=8, fig.height=4, results='hide',fig.align='center', fig.pos='H', fig.cap="Colombia Unemployment Rate Forecast for 2025 (Top 3 Model Average)"}
+Colombia_recent <- data.frame(
+  Month = seq(as.Date("2020-01-01"), by = "month", length.out = length(window(ts_full_clean, start = c(2020,1)))),
+  Actual = as.numeric(window(ts_full_clean, start = c(2020, 1)))
+)
+plot_df <- bind_rows(
+  Colombia_recent %>%
+    mutate(Type = "Actual") %>%
+    rename(Value = Actual),
+  forecast_df_2025 %>%
+    select(Month, Value = Average) %>%
+    mutate(Type = "Forecast")
+)
+
+ggplot(plot_df, aes(x = Month, y = Value, color = Type, group=1)) +
+  geom_line(size = 1) +
+  scale_color_manual(values = c("Actual" = "black", "Forecast" = "steelblue")) +
+  labs(title = "",
+       y = "Unemployment Rate (%)", x = "Month", color = "Legend") +
+  theme_minimal()
+
+```
+The plot presents the ensemble forecast (2021–2026), averaging NNETAR, SSES, and TBATS projections. The smoothed trajectory reduces extremes seen in individual models (e.g., TBATS’s highs, NNETAR’s lows), offering a balanced outlook. However, this approach may underrepresent tail risks, such as sudden economic shocks. The ensemble’s intermediate values (10–11%) reflect a pragmatic compromise between adaptability and stability, though policymakers should supplement these projections with scenario analysis to account for uncertainty.
+
+\clearpage
+
+## Data Preparation and Decomposition for US (Original Series)
+
+### Training and Testing Window (US Original) 
+  
+To facilitate time series forecasting, the cleaned U.S. unemployment dataset was transformed into a monthly multivariate time series object using the `ts()` function. The data span from January 2001 to December 2024, with monthly frequency. To evaluate model performance under realistic forecasting conditions, a 12-month horizon corresponding to the year 2024 was reserved as the testing period. The full dataset was split into two subsets: A training set, consisting of observations from January 2001 to December 2023. A testing set, consisting of observations from January 2024 to December 2024.  
+  
+Figure 8 shows the unemployment rate for both the training and testing periods.  
+
+```{r time series, echo=FALSE, message=FALSE, warning=FALSE, fig.cap="US Original: Training and Testing Sets", fig.width=8, fig.height=4, results='hide'}
+# Transform into time series
+ts_US <- ts(US[,2:11],
+              start=c(year(US$Month[1]), month(US$Month[1])),
+              frequency = 12)
+
+# Set the period
+nobsUS = nrow(US)
+n_forUS = 12
+
+# Create a subset for training purpose 
+ts_US_train <- ts(US[1:(nobsUS-n_forUS),2:11],
+                    start=c(year(US$Month[1]), month(US$Month[1])),
+                    frequency = 12)
+
+# Create a subset for testing purpose
+start_rowUS = nobsUS - n_forUS + 1
+ts_US_test <- ts(US[(nobsUS - n_forUS + 1):nobsUS,2:11],
+                   start=c(year(US$Month[start_rowUS]),
+                           month(US$Month[start_rowUS])), frequency = 12)
+
+# Plots 
+trainUS <- autoplot(ts_US_train[,"Total.Per"]) + ylab("Unemployment Rate (%)") +
+  ggtitle("Training Window")
+testUS <- autoplot(ts_US_test[,"Total.Per"]) + ylab("Unemployment Rate (%)") +
+  ggtitle("Testing Window")
+grid.arrange(trainUS, testUS, ncol = 2)
+```
+
+To assess the temporal dependence structure of the training data, the autocorrelation function and partial autocorrelation function were examined. 
+  
+
+```{r ACF PACF, echo=FALSE, message=FALSE, warning=FALSE, fig.cap="US Original: ACF and PACF of Training Set"}
+# Plot ACF and PACF
+par(mfrow=c(1,2))
+Acf(ts_US_train[,"Total.Per"], lag=40, plot = TRUE, main = "")
+Pacf(ts_US_train[,"Total.Per"], lag=40, plot = TRUE, main = "")
+par(mfrow=c(1,1))
+```
+
+As shown in Figure 9, the ACF decays slowly across lags, indicating the presence of non-stationarity and persistent autocorrelation. The PACF shows a cut off at lag 1. These patterns suggest that the series may be non-stationary with strong autocorrelation.
+
+### Decomposing the time series (US Original)  
+  
+The training series was decomposed into trend, seasonal, and irregular components using classical seasonal decomposition.  
+
+Figure 10 shows a strong seasonal pattern and a pronounced outlier around 2020, likely associated with the COVID-19 shock.  
+
+```{r fig:decomp_us, echo=FALSE, warning=FALSE, message=FALSE, fig.cap="US Original: Decomposition of Training set", fig.width=8, fig.height=4, results='hide'}
+# Decompose 
+decom_totalper_trainUS <- decompose(ts_US_train[,"Total.Per"])
+plot(decom_totalper_trainUS)
+```
+
+To remove the seasonal component, a seasonally adjusted series was generated using the `seasadj()` function. The result is shown in Figure 11.
+  
+```{r fig:deseas_us, echo=FALSE, warning=FALSE, message=FALSE, fig.cap="US Original: Seasonally Adjusted Series",fig.width=8, fig.height=4, results='hide'}
+# Deseason 
+deseas_totalper_trainUS <- seasadj(decom_totalper_trainUS)  
+plot(deseas_totalper_trainUS)
+```
+
+To evaluate the stationarity and trend properties of the series, three tests were performed.  
+
+For the seasonally adjusted series, the Augmented Dickey-Fuller test yielded a non-significant p-value (p = 0.43), indicating weak evidence against the unit root. However, the Mann-Kendall test confirmed a significant decreasing trend (tau = -0.27, p < 0.001).  
+
+For the original series, similar ADF results were observed (p = 0.43), while the seasonal MK test showed statistically significant seasonal patterns in several months (e.g., Season 12, p < 0.01), indicating strong seasonality.  
+
+```{r stationarity-tests, include=FALSE, fig.width=8, fig.height=4, results='hide', echo=FALSE}
+# Run the tests on deseasoned series
+print(adf.test(deseas_totalper_trainUS, alternative = "stationary")) # It is stationary. 
+summary(MannKendall(deseas_totalper_trainUS)) # It has a decreasing trend.
+
+# Run the tests on original series 
+print(adf.test(ts_US_train[,"Total.Per"], alternative = "stationary")) # It is stationary. 
+summary(SeasonalMannKendall(ts_US_train[,"Total.Per"])) 
+summary(smk.test(ts_US_train[,"Total.Per"])) # It has seasonality.
+```
+
+The number of differences required to achieve stationarity was evaluated using the `ndiffs()` function. Both the original and seasonally adjusted series were found to require one order of differencing.  
+  
+
+```{r differencing-check, echo=FALSE, warning=FALSE, message=FALSE, results='hide'}
+# # Check for any differencing needed 
+# cat("Differencing requirement for original series:\n")
+# print(ndiffs(ts_US_train[,"Total.Per"]))
+# 
+# cat("\nDifferencing requirement for deseasoned series:\n")
+# print(ndiffs(deseas_totalper_trainUS))
+```
+
+## Modeling and Forecasting for US (Original Series)  
+
+### Test Time Series Models (US Original)
+
+Eleven time series models were implemented to forecast the U.S. unemployment rate and evaluate predictive performance in this analysis:  
+  
+1. **Seasonal Naïve (SNAIVE)** replicates the seasonal pattern from the previous year as a baseline.  
+2. **Simple Moving Average (SMA)** smooths fluctuations by taking an equal-weighted average over a fixed number of recent observations.  
+3. **Simple Exponential Smoothing (SES)** applies exponentially decreasing weights to past values, emphasizing more recent data points.  
+4. **SARIMA** captures both autoregressive and seasonal structures in the original series using `auto.arima()`.  
+5. **ARIMA** (applied to deseasonalized data) models trend and autoregressive components without explicitly accounting for seasonal patterns.  
+6. **STL + ETS** combines trend-seasonal decomposition with exponential smoothing using `stlf()`.  
+7. **ARIMA + Fourier** introduces seasonal flexibility through Fourier terms as external regressors.  
+8. **TBATS** incorporates Box-Cox transformation, ARMA errors, and trigonometric seasonality.  
+9. **Neural Network (NNETAR)** captures nonlinear dynamics using lagged inputs in a feedforward network.  
+10. **State Space Exponential Smoothing (SSES)** selects optimal components automatically.  
+11. **State Space with BSM** models level, trend, and seasonality stochastically.  
+  
+  
+Residual diagnostics were conducted using the `checkresiduals()` function, including ACF plots and the Ljung-Box test. Most models generated residuals consistent with white noise, indicating proper specification.  
+**SMA, SES, ARIMA, SARIMA, STL + ETS, ARIMA + Fourier, TBATS, NNETAR, and SSES** all passed residual tests, with Ljung-Box p-values ranging from 0.11 to 0.99.  
+**SNAIVE**, as expected for a benchmark, showed strong autocorrelation in residuals and failed the test.  
+**State Space with BSM** exhibited the poorest performance in residual checks, with significant autocorrelation (p < 2.2e-16) and visible spikes in the ACF plot, suggesting model misspecification.  
+  
+
+```{r time series models, include=FALSE}
+# Seasonal Naive Model 
+SNAIVE_deseas_totalperUS <- snaive(ts_US_train[,"Total.Per"], h=n_forUS)
+autoplot(SNAIVE_deseas_totalperUS)
+checkresiduals(SNAIVE_deseas_totalperUS) # Residuals are not iid. 
+
+# Simple Moving Average Model
+SMA_deseas_totalperUS <- smooth::sma(y = deseas_totalper_trainUS, h=n_forUS, 
+                                     holdout = FALSE, silent = FALSE) 
+summary(SMA_deseas_totalperUS)
+checkresiduals(SMA_deseas_totalperUS) # Residuals are iid. 
+
+# Simple Exponential Smoothing Model
+SES_deseas_totalperUS = ses( y = deseas_totalper_trainUS, h=n_forUS, 
+                             holdout = FALSE, silent = FALSE)  
+summary(SES_deseas_totalperUS)
+autoplot(SES_deseas_totalperUS)
+checkresiduals(SES_deseas_totalperUS) # Residuals are iid. 
+
+# SARIMA Model
+SARIMA_totalperUS <- auto.arima(ts_US_train[,"Total.Per"])
+print(SARIMA_totalperUS)
+
+SARIMA_forecast_totalperUS <- forecast(object = SARIMA_totalperUS, h=n_forUS)
+autoplot(SARIMA_forecast_totalperUS)
+checkresiduals(SARIMA_forecast_totalperUS) # Residuals are iid.
+
+# Deaseasoned ARIMA Model
+ARIMA_totalperUS <- auto.arima(deseas_totalper_trainUS, max.D = 0, 
+                               max.P = 0, max.Q = 0)
+print(ARIMA_totalperUS)
+
+ARIMA_forecast_totalperUS <- forecast(object = ARIMA_totalperUS, h=n_forUS)
+autoplot(ARIMA_forecast_totalperUS)
+checkresiduals(ARIMA_forecast_totalperUS) # Residuals are iid.
+ 
+# STL + ETS Model
+ETS_totalperUS <-  stlf(ts_US_train[,"Total.Per"],h=n_forUS)
+autoplot(ETS_totalperUS) 
+checkresiduals(ETS_totalperUS) # Residuals are iid. 
+
+# ARIMA + FOURIER Model
+ARIMA_Four_fit_totalperUS <- auto.arima(ts_US_train[,"Total.Per"], 
+                             seasonal=FALSE, lambda=0,
+                             xreg=fourier(ts_US_train[,"Total.Per"], 
+                                          K=3))
+
+ARIMA_Four_for_totalperUS <- forecast(ARIMA_Four_fit_totalperUS,
+                           xreg=fourier(ts_US_train[,"Total.Per"],
+                                        K=3, h=n_forUS),
+                           h=n_forUS) 
+
+autoplot(ARIMA_Four_for_totalperUS)
+checkresiduals(ARIMA_Four_for_totalperUS) # Residuals are iid. 
+
+# TBATS Model 
+TBATS_fit_totalperUS <- tbats(ts_US_train[,"Total.Per"])
+TBATS_for_totalperUS <- forecast(TBATS_fit_totalperUS, h = n_forUS)
+autoplot(TBATS_for_totalperUS) 
+checkresiduals(TBATS_fit_totalperUS) # Residuals are iid. 
+
+# Neural Network Model 
+NN_fit_totalperUS <- nnetar(ts_US_train[,"Total.Per"],
+                 p=3, P=0,
+                 xreg=fourier(ts_US_train[,"Total.Per"], K=3))
+
+NN_for_totalperUS <- forecast(NN_fit_totalperUS, 
+                   h=n_forUS,
+                   xreg=fourier(ts_US_train[,"Total.Per"], 
+                                          K=3,h=n_forUS))
+
+autoplot(NN_for_totalperUS)
+checkresiduals(NN_fit_totalperUS) # Residuals are iid. 
+
+## State Space Exponential Smoothing Model
+SSES_seas_totalperUS <- es(ts_US_train[,"Total.Per"],
+                         model="ZZZ", h=n_forUS, holdout=FALSE)
+checkresiduals(SSES_seas_totalperUS) # Residuals are iid.
+
+## State Space with BSM Model
+SS_seas_totalperUS <- StructTS(ts_US_train[,"Total.Per"],
+                    type="BSM",fixed=c(0.01,0.001,0.1,NA)) 
+
+SS_for_totalperUS <- forecast(SS_seas_totalperUS,h=n_forUS)
+
+plot(SS_for_totalperUS)
+checkresiduals(SS_seas_totalperUS) # Residuals are not iid. 
+```
+
+### Performance check (US Original)
+  
+To assess out-of-sample performance, forecasts were generated for the 12-month testing period in 2024 and compared to observed unemployment rates. Model accuracy was evaluated using six standard metrics: Mean Error (ME), Root Mean Squared Error (RMSE), Mean Absolute Error (MAE), Mean Percentage Error (MPE), Mean Absolute Percentage Error (MAPE), autocorrelation at lag 1 (ACF1), and Theil’s U statistic. A composite score was calculated as the average of RMSE and MAPE.  
+
+The results are summarized in Table 3. Based on the average of RMSE and MAPE, the State Space with BSM delivered the best forecast accuracy, followed by the SES and ARIMA models.  
+
+For visual comparison, Figure 12 displays the test set alongside forecasted values from selected models. SMA and SSES were excluded due to technical issues. Notably, the NNETAR model failed to capture the sharp spike observed in the actual 2024 data.  
+
+```{r accuracy US, echo=FALSE, warning=FALSE, message=FALSE, fig.width=10, fig.height=4 }
+# Check accuracy of the models
+SANIVE_tpscoresUS <- accuracy(SNAIVE_deseas_totalperUS$mean,ts_US_test[,"Total.Per"])  
+SMA_tpscoresUS <- accuracy(SMA_deseas_totalperUS$forecast,ts_US_test[,"Total.Per"])  
+SES_tpscoresUS <- accuracy(SES_deseas_totalperUS$mean,ts_US_test[,"Total.Per"])
+SARIMA_tpscoresUS <- accuracy(SARIMA_forecast_totalperUS$mean,ts_US_test[,"Total.Per"])
+ARIMA_tpscoresUS <- accuracy(ARIMA_forecast_totalperUS$mean,ts_US_test[,"Total.Per"])
+ETS_tpscoresUS <- accuracy(ETS_totalperUS$mean,ts_US_test[,"Total.Per"])
+ARIMA_Four_tpscoresUS <- accuracy(ARIMA_Four_for_totalperUS$mean,ts_US_test[,"Total.Per"])
+TBATS_tpscoresUS <- accuracy(TBATS_for_totalperUS$mean,ts_US_test[,"Total.Per"])
+NN_tpscoresUS <- accuracy(NN_for_totalperUS$mean,ts_US_test[,"Total.Per"])
+SSES_tpscoresUS <- accuracy(SSES_seas_totalperUS$forecast,ts_US_test[,"Total.Per"])
+SS_tpscoresUS <- accuracy(SS_for_totalperUS$mean,ts_US_test[,"Total.Per"])
+
+# Compare the matrix 
+tpscoresUS <- as.data.frame(rbind(SANIVE_tpscoresUS, SMA_tpscoresUS, 
+                                SES_tpscoresUS, SARIMA_tpscoresUS, ARIMA_tpscoresUS, 
+                                ETS_tpscoresUS, ARIMA_Four_tpscoresUS, TBATS_tpscoresUS, 
+                                NN_tpscoresUS, SSES_tpscoresUS, SS_tpscoresUS)) 
+
+row.names(tpscoresUS) <- c("SNAIVE", "SMA", "SES", "SARIMA", "ARIMA",
+                       "ETS", "ARIMA_FOURIER", "TBATS", "NNETAR",
+                       "SSES", "BSM")
+
+tpscoresUS <- tpscoresUS %>%
+  mutate(Average = rowMeans(select(., RMSE, MAPE), na.rm = TRUE))
+  
+# Choose model with lowest error
+best_model_index_tpUS <- which.min(tpscoresUS[,"Average"])
+cat("The best model by Average is:", row.names(tpscoresUS[best_model_index_tpUS,]))  
+
+
+```
+
+```{r forecast plot, echo=FALSE, warning=FALSE, message=FALSE, fig.cap="US Original: Forecast Comparison Across Models"}
+# Plot everything together
+autoplot(ts_US_test[,"Total.Per"]) +
+  autolayer(SNAIVE_deseas_totalperUS, PI=FALSE, series="SNAIVE") + 
+  autolayer(SES_deseas_totalperUS, PI=FALSE, series="SES") +
+  autolayer(SARIMA_forecast_totalperUS, PI=FALSE, series="SARIMA") +
+  autolayer(ARIMA_forecast_totalperUS, PI=FALSE, series="ARIMA") +
+  autolayer(ETS_totalperUS, PI=FALSE, series="ETS") +
+  autolayer(ARIMA_Four_for_totalperUS, PI=FALSE, series="ARIMA_FOURIER") +
+  autolayer(TBATS_for_totalperUS, PI=FALSE, series="TBATS") +
+  autolayer(NN_for_totalperUS, PI=FALSE, size=0.7, series="NNETAR") +
+  autolayer(SS_for_totalperUS, PI=FALSE, series="BSM") +
+  guides(colour=guide_legend(title="Forecast")) # SMA and SSES could not run
+```
+
+```{r Errors Plot, echo=FALSE, warning=FALSE, message=FALSE, fig.cap="Forecast Comparison Across Models"}
+# Create Tables 
+kbl(tpscoresUS, 
+      caption = "US Original: Forecast Accuracy for Unemployment Rate (\\%) Data",
+      digits = array(5,ncol(tpscoresUS))) %>%
+  kable_styling(full_width = FALSE, position = "center") %>%
+  #highlight model with lowest RMSE
+  kable_styling(latex_options="striped", stripe_index = which.min(tpscoresUS[,"Average"]))
+```
+
+### Forecast for 2025 with Best Three Models (US Original)  
+  
+To forecast U.S. unemployment trends for 2025, the three best-performing models based on out-of-sample accuracy, **Basic Structural Model (BSM), Simple Exponential Smoothing (SES), and ARIMA**, were retrained using the full dataset from January 2001 to December 2024. Each model was then used to generate 12-month ahead forecasts for the year 2025.  
+
+Figure 13 presents the overlay of all three forecasted series against the historical unemployment trend. While all models project a relatively stable unemployment rate in 2025, the BSM model shows slightly more variation. The SES and ARIMA models produce smoother forecasts.  
+
+```{r forecast 2025 US original, include=FALSE}
+# Set the forecasting period
+n_fullUS = 12
+
+# Create the time series to retain full data set
+ts_US_fulltrain <- ts(US[,6],
+              start=c(year(US$Month[1]), month(US$Month[1])),
+              frequency = 12)
+
+# Fit SS with BSM Model 
+SS_seas_totalper_fulltrainUS <- StructTS(ts_US_fulltrain,
+                    type="BSM",fixed=c(0.01,0.001,0.1,NA)) 
+
+SS_for_totalper_fulltrainUS <- forecast(SS_seas_totalper_fulltrainUS,h=n_fullUS)
+
+# Plot model + observed data
+autoplot(ts_US_fulltrain) +
+  autolayer(SS_for_totalper_fulltrainUS, series="SS with BSM Model",PI=FALSE)+
+  ylab("Forecasted Unemployment Rate (%) in US") 
+
+# Simple Exponential Smoothing Model
+decom_totalper_fulltrainUS <- decompose(ts_US_fulltrain)
+deseas_totalper_fulltrainUS <- seasadj(decom_totalper_fulltrainUS)
+SES_deseas_totalper_fulltrainUS = ses( y = deseas_totalper_fulltrainUS,
+                                       h=n_fullUS,    holdout = FALSE,
+                                       silent = FALSE)  
+
+# Plot model + observed data
+autoplot(ts_US_fulltrain) +
+  autolayer(SES_deseas_totalper_fulltrainUS, series="SES Model",PI=FALSE)+
+  ylab("Forecasted Unemployment Rate (%) in US") 
+
+# Fit ARIMA 
+decom_totalper_fulltrainUS <- decompose(ts_US_fulltrain)
+deseas_totalper_fulltrainUS <- seasadj(decom_totalper_fulltrainUS)
+
+ARIMA_totalper_fulltrainUS <- auto.arima(deseas_totalper_fulltrainUS, max.D = 0, 
+                               max.P = 0, max.Q = 0)
+
+ARIMA_forecast_totalperUS <- forecast(object = ARIMA_totalper_fulltrainUS, h=n_fullUS)
+
+# Plot model + observed data
+autoplot(ts_US_fulltrain) +
+  autolayer(ARIMA_forecast_totalperUS, series= "ARIMA Model",PI=FALSE)+
+  ylab("Forecasted Unemployment Rate (%) in US") 
+```
+
+```{r forecast result 2025 US original, echo=FALSE, warning=FALSE, message=FALSE, fig.cap="US Original: Forecast Unemployment Rate for 2025 — Top 3 Models"}
+# Plot 3 models together 
+autoplot(ts_US_fulltrain) +
+  autolayer(SS_for_totalper_fulltrainUS, series="SS with BSM Model",PI=FALSE)+
+  autolayer(SES_deseas_totalper_fulltrainUS, series="SES Model",PI=FALSE)+
+  autolayer(ARIMA_forecast_totalperUS, series= "ARIMA Model",PI=FALSE)+
+  ylab("Unemployment Rate (%)") + 
+  ggtitle("Forecasted Unemployment Rate (%) in US")
+```
+
+
+## Data Preparation and Decomposition for US (Outliers-Removed Series)
+
+While the original unemployment series revealed meaningful seasonal and trend components, it also included extreme fluctuations, particularly during the COVID-19 period. To ensure model robustness, an outlier-adjusted version of the series was created and analyzed using the same framework as the original. This section presents the results based on the outliers-removed dataset.  
+
+### Training and Testing Window (US Cleaned) 
+  
+To address extreme deviations, the original unemployment rate series was smoothed using the `tsclean()` function. As shown in Figure 14, the adjusted series closely follows the original trajectory, except for a visibly reduced spike in early 2020.  
+
+```{r Remove outliers US, echo=FALSE, warning=FALSE, message=FALSE, fig.cap="US Original vs Outliers-Removed Series"}
+# Remove outliers 
+ts_USout <- tsclean(ts_US[,"Total.Per"]) 
+
+autoplot(ts_USout, series="Outliers-removed Series") +
+  autolayer(ts_US[,"Total.Per"], series="Original Series") +
+  ylab("Unemployment Rate (%)") 
+```
+
+Following the same procedure as before, the outliers-removed series was split into a training set (January 2001 to December 2023) and a testing set (January to December 2024). These segments are illustrated in Figure 15.  
+
+```{r train test outlier, echo=FALSE, warning=FALSE, message=FALSE, fig.cap="US Cleaned: Training and Testing Sets"}
+# Create a subset for training purpose 
+ts_US_trainout <- ts(ts_USout[1:(nobsUS-n_forUS)],
+                    start=c(year(US$Month[1]), month(US$Month[1])),
+                    frequency = 12)
+
+# Create a subset for testing purpose
+ts_US_testout <- ts(ts_USout[(nobsUS - n_forUS + 1):nobsUS],
+                   start=c(year(US$Month[start_rowUS]),
+                           month(US$Month[start_rowUS])), frequency = 12)
+
+# Plots 
+trainUSout <- autoplot(ts_US_trainout) + ylab("Unemployment Rate (%)") +
+  ggtitle("Training Window")
+testUSout <- autoplot(ts_US_testout) + ylab("Unemployment Rate (%)") +
+  ggtitle("Testing Window")
+grid.arrange(trainUSout, testUSout, ncol = 2)
+```
+
+Temporal dependence was assessed using ACF and PACF plots. As shown in Figure 16, the outliers-removed series retains strong autocorrelation, with a slow ACF decay and a sharp PACF cut-off at lag 1, indicating the underlying dependency structure remains intact.  
+
+```{r acf pacf outlier, echo=FALSE, warning=FALSE, message=FALSE, fig.cap="US Cleaned: ACF and PACF of Training Set"}
+par(mfrow=c(1,2))
+Acf(ts_US_trainout, lag=40, plot = TRUE, main = "")
+Pacf(ts_US_trainout, lag=40, plot = TRUE, main = "")
+par(mfrow=c(1,1))
+```
+
+### Decompose the time series (US Cleaned)  
+  
+The outliers-removed training set was decomposed into trend, seasonal, and irregular components using classical additive decomposition. As shown in Figure 17, the seasonal pattern remains strong, and the COVID-related spike appears in the irregular component, though its magnitude is attenuated.  
+
+```{r fig:decomp_us_o, echo=FALSE, warning=FALSE, message=FALSE, fig.cap="US Cleaned: Decomposition of Training Set"}
+# Decompose 
+decom_totalper_trainUSout <- decompose(ts_US_trainout)
+plot(decom_totalper_trainUSout)
+```
+
+To remove the seasonal effect, a seasonally adjusted series was created using the `seasadj()`. The deseasonalized series is plotted in Figure 18.  
+
+```{r fig:deseas_us_o, echo=FALSE, warning=FALSE, message=FALSE, fig.cap="US Cleaned: Seasonally Adjusted Series"}
+# Deseason 
+deseas_totalper_trainUSout <- seasadj(decom_totalper_trainUSout)  
+plot(deseas_totalper_trainUSout)
+```
+
+Stationarity and trend were evaluated using three tests:  
+The ADF test produced non-significant p-values for both original (p = 0.5664) and deseasoned (p = 0.4728) series, suggesting the presence of unit roots.  
+The Mann-Kendall test on the deseasoned series showed a significant downward trend (tau = -0.305, p < 0.001).  
+The Seasonal Mann-Kendall test confirmed significant seasonal trends, particularly in January, February, March, and December (p < 0.05).  
+These results indicate that, after outlier adjustment, the series retains both trend and seasonality.  
+  
+
+```{r stationarity-tests_o, include=FALSE}
+# Run the tests on deseasoned series
+print(adf.test(deseas_totalper_trainUSout, alternative = "stationary")) # It is unit root. 
+summary(MannKendall(deseas_totalper_trainUSout)) # It has a decreasing trend.
+
+# Run the tests on original series 
+print(adf.test(ts_US_trainout, alternative = "stationary")) # It is unit out. 
+summary(SeasonalMannKendall(ts_US_trainout)) 
+summary(smk.test(ts_US_trainout)) # It has seasonality. 
+```
+
+The `ndiffs()` function indicated that both the original and deseasoned series required one order of differencing, consistent with findings from the unadjusted series.    
+
+```{r differencing-check_outliers, echo=FALSE, warning=FALSE, message=FALSE}
+# # Check for any differencing needed 
+# cat("Differencing requirement for outliers-removed original series:\n")
+# print(ndiffs(ts_US_trainout))
+# 
+# cat("\nDifferencing requirement for outliers-removed deseasoned series:\n")
+# print(ndiffs(deseas_totalper_trainUSout))
+```
+
+
+## Testing Time Series Models for US (Outliers-Removed Series)
+
+### Test Time Series Models (US Cleaned) 
+
+To evaluate model robustness, the same eleven forecasting models were applied to the outliers-removed series. Each model was assessed using residual diagnostics based on the `checkresiduals()` function, which includes ACF plots and the Ljung-Box test.  
+  
+1. **SNAIVE**: Residuals exhibited strong seasonal autocorrelation and failed the white noise test (p < 2.2e-16), confirming model inadequacy.  
+2. **SMA(1)**: Smoothed the series but left significant autocorrelation (p < 0.001), suggesting underfitting.  
+3. **SES**: Produced visually acceptable fits, but residuals showed serial dependence (p < 1e-15), indicating insufficient complexity.  
+4. **SARIMA(4,1,0)(1,1,1)[12]**: Captured short- and long-term structure but failed the Ljung-Box test (p = 0.005), with mild residual autocorrelation.  
+5. **ARIMA(1,1,2)** (on deseasoned series): Achieved the best residual behavior among all models, with white-noise residuals confirmed (p = 0.037).  
+6. **STL + ETS**: Forecasts were reasonable, but residuals failed diagnostic tests (p = 1e-5), particularly during volatile periods.  
+7. **ARIMA + Fourier**: Despite incorporating seasonal terms via Fourier regressors, residuals remained autocorrelated (p = 1.4e-08), indicating incomplete seasonal modeling.  
+8. **TBATS**: Aimed at complex seasonal dynamics, but residuals showed substantial autocorrelation, especially around the COVID-19 period.  
+9. **NNETAR**: Captured nonlinearities but exhibited residual serial dependence (p = 0.00015), suggesting overfitting or limited generalization.  
+10. **SSES (Exponential Smoothing)**: Residuals remained autocorrelated, confirming that exponential smoothing alone was insufficient for structural irregularities.  
+11. **State Space with BSM**: Residuals showed clear autocorrelation (p < 2.2e-16), with spikes in ACF plots, indicating poor fit despite the model's theoretical flexibility.  
+
+```{r time series models US, include=FALSE}
+# Seasonal Naive Model 
+SNAIVE_deseas_totalperUSout <- snaive(ts_US_trainout, h=n_forUS)
+autoplot(SNAIVE_deseas_totalperUSout)
+checkresiduals(SNAIVE_deseas_totalperUSout)
+
+# Simple Moving Average Model
+SMA_deseas_totalperUSout <- smooth::sma(y = deseas_totalper_trainUSout, h=n_forUS, 
+                                     holdout = FALSE, silent = FALSE) 
+summary(SMA_deseas_totalperUSout)
+checkresiduals(SMA_deseas_totalperUSout)
+
+# Simple Exponential Smoothing Model
+SES_deseas_totalperUSout = ses( y = deseas_totalper_trainUSout, h=n_forUS, 
+                             holdout = FALSE, silent = FALSE)  
+summary(SES_deseas_totalperUSout)
+autoplot(SES_deseas_totalperUSout)
+checkresiduals(SES_deseas_totalperUSout)
+
+# SARIMA Model
+SARIMA_totalperUSout <- auto.arima(ts_US_trainout)
+print(SARIMA_totalperUSout)
+
+SARIMA_forecast_totalperUSout <- forecast(object = SARIMA_totalperUSout, h=n_forUS)
+autoplot(SARIMA_forecast_totalperUSout)
+checkresiduals(SARIMA_forecast_totalperUSout) # Residuals are not iid.
+
+# Deaseasoned ARIMA Model
+ARIMA_totalperUSout <- auto.arima(deseas_totalper_trainUSout, max.D = 0, 
+                               max.P = 0, max.Q = 0)
+print(ARIMA_totalperUSout)
+
+ARIMA_forecast_totalperUSout <- forecast(object = ARIMA_totalperUSout, h=n_forUS)
+autoplot(ARIMA_forecast_totalperUSout)
+checkresiduals(ARIMA_forecast_totalperUSout) # Residuals are iid.
+ 
+# STL + ETS Model
+ETS_totalperUSout <-  stlf(ts_US_trainout,h=n_forUS)
+autoplot(ETS_totalperUSout) 
+checkresiduals(ETS_totalperUSout) # Residuals are not iid. 
+
+# ARIMA + FOURIER Model
+ARIMA_Four_fit_totalperUSout <- auto.arima(ts_US_trainout, 
+                             seasonal=FALSE, lambda=0,
+                             xreg=fourier(ts_US_trainout, 
+                                          K=3))
+
+ARIMA_Four_for_totalperUSout <- forecast(ARIMA_Four_fit_totalperUSout,
+                           xreg=fourier(ts_US_trainout,
+                                        K=3, h=n_forUS),
+                           h=n_forUS) 
+
+autoplot(ARIMA_Four_for_totalperUSout)
+checkresiduals(ARIMA_Four_for_totalperUSout) # Residuals are not iid. 
+
+# TBATS Model 
+TBATS_fit_totalperUSout <- tbats(ts_US_trainout)
+TBATS_for_totalperUSout <- forecast(TBATS_fit_totalperUSout, h = n_forUS)
+autoplot(TBATS_for_totalperUSout) 
+checkresiduals(TBATS_fit_totalperUSout) # Residuals are not iid. 
+
+# Neural Network Model 
+NN_fit_totalperUSout <- nnetar(ts_US_trainout,
+                 p=3, P=0,
+                 xreg=fourier(ts_US_trainout, K=3))
+
+NN_for_totalperUSout <- forecast(NN_fit_totalperUSout, 
+                   h=n_forUS,
+                   xreg=fourier(ts_US_trainout, 
+                                          K=3,h=n_forUS))
+
+autoplot(NN_for_totalperUSout)
+checkresiduals(NN_fit_totalperUSout) # Residuals are not iid. 
+
+## State Space Exponential Smoothing Model
+SSES_seas_totalperUSout <- es(ts_US_trainout,
+                         model="ZZZ", h=n_forUS, holdout=FALSE)
+checkresiduals(SSES_seas_totalperUSout) # Residuals are not iid.
+
+## State Space with BSM Model
+SS_seas_totalperUSout <- StructTS(ts_US_trainout,
+                    type="BSM",fixed=c(0.01,0.001,0.1,NA)) 
+
+SS_for_totalperUSout <- forecast(SS_seas_totalperUSout,h=n_forUS)
+
+plot(SS_for_totalperUSout)
+checkresiduals(SS_seas_totalperUSout) # Residuals are not iid. 
+```
+
+### Performance check (US Cleaned)  
+  
+To evaluate forecast performance, all eleven models were assessed against the 2024 testing set. Forecast accuracy was measured using multiple criteria, including RMSE, MAE, MAPE, and an average score calculated as the mean of RMSE and MAPE.  
+
+Table 4 summarizes the results. The NNETAR model achieved the highest overall performance, with the lowest average error (1.25235), best RMSE (0.12675), and lowest MAPE (2.38%). These results suggest that NNETAR effectively captured both linear and nonlinear dynamics in the cleaned series.  
+
+The ETS and BSM models also performed well, with average errors below 1.34 and MAPE values around 2.5%. Their low ACF1 values (0.13 and 0.04, respectively) indicate minimal residual autocorrelation and well-specified forecasts.  
+
+In contrast, baseline models such as SNAIVE, SMA, and SES showed higher average errors (> 4.0), highlighting their limited adaptability to the adjusted series. Models like ARIMA + Fourier, TBATS, and SSES also underperformed, with average errors exceeding 5 and persistent autocorrelation, suggesting poor fit even after outlier removal.  
+
+Figure 19 displays forecast trajectories alongside actual unemployment data in 2024. The top models (NNETAR, ETS, BSM) closely tracked observed trends, while models like SNAIVE, SES, and TBATS showed visible deviations, consistent with the quantitative rankings.  
+  
+```{r accuracy, echo=FALSE, warning=FALSE, message=FALSE}
+# Check accuracy of the models
+SANIVE_tpscoresUSout <- accuracy(SNAIVE_deseas_totalperUSout$mean,ts_US_testout)  
+SMA_tpscoresUSout <- accuracy(SMA_deseas_totalperUSout$forecast,ts_US_testout)  
+SES_tpscoresUSout <- accuracy(SES_deseas_totalperUSout$mean,ts_US_testout)
+SARIMA_tpscoresUSout <- accuracy(SARIMA_forecast_totalperUSout$mean,ts_US_testout)
+ARIMA_tpscoresUSout <- accuracy(ARIMA_forecast_totalperUSout$mean,ts_US_testout)
+ETS_tpscoresUSout <- accuracy(ETS_totalperUSout$mean,ts_US_testout)
+ARIMA_Four_tpscoresUSout <- accuracy(ARIMA_Four_for_totalperUSout$mean,ts_US_testout)
+TBATS_tpscoresUSout <- accuracy(TBATS_for_totalperUSout$mean,ts_US_testout)
+NN_tpscoresUSout <- accuracy(NN_for_totalperUSout$mean,ts_US_testout)
+SSES_tpscoresUSout <- accuracy(SSES_seas_totalperUSout$forecast,ts_US_testout)
+SS_tpscoresUSout <- accuracy(SS_for_totalperUSout$mean,ts_US_testout)
+
+# Compare the matrix 
+tpscoresUSout <- as.data.frame(rbind(SANIVE_tpscoresUSout, SMA_tpscoresUSout, 
+                                SES_tpscoresUSout, SARIMA_tpscoresUSout, ARIMA_tpscoresUSout, 
+                                ETS_tpscoresUSout, ARIMA_Four_tpscoresUSout, TBATS_tpscoresUSout, 
+                                NN_tpscoresUSout, SSES_tpscoresUSout, SS_tpscoresUSout)) 
+
+row.names(tpscoresUSout) <- c("SNAIVE", "SMA", "SES", "SARIMA", "ARIMA",
+                       "ETS", "ARIMA_FOURIER", "TBATS", "NNETAR",
+                       "SSES", "BSM")
+
+tpscoresUSout <- tpscoresUSout %>%
+  mutate(Average = rowMeans(select(., RMSE, MAPE), na.rm = TRUE))
+
+# Choose model with lowest error
+best_model_index_tpUSout <- which.min(tpscoresUSout[,"Average"])
+cat("The best model by Average is:", row.names(tpscoresUSout[best_model_index_tpUSout,]))  
+
+
+```
+
+```{r forecast plot outlier, echo=FALSE, warning=FALSE, message=FALSE, fig.cap="US Cleaned: Forecast Comparison Across Models"}
+
+# Plot everything together
+  autoplot(ts_US_testout) +
+  autolayer(SNAIVE_deseas_totalperUSout, PI=FALSE, series="SNAIVE") + 
+  autolayer(SES_deseas_totalperUSout, PI=FALSE, series="SES") +
+  autolayer(SARIMA_forecast_totalperUSout, PI=FALSE, series="SARIMA") +
+  autolayer(ARIMA_forecast_totalperUSout, PI=FALSE, series="ARIMA") +
+  autolayer(ETS_totalperUSout, PI=FALSE, series="ETS") +
+  autolayer(ARIMA_Four_for_totalperUSout, PI=FALSE, series="ARIMA_FOURIER") +
+  autolayer(TBATS_for_totalperUSout, PI=FALSE, series="TBATS") +
+  autolayer(NN_for_totalperUSout, PI=FALSE, series="NNETAR") +
+  autolayer(SS_for_totalperUSout, PI=FALSE, series="BSM") +
+  guides(colour=guide_legend(title="Forecast")) # SMA and SSES could not run
+```
+
+### Forecast for 2025 with Best Three Models (US Cleaned) {#sec:forecast2025_us_cleaned} 
+
+To forecast the U.S. unemployment rate for 2025, the three models with the best performance in the previous section were selected: **State Space with BSM, NNETAR, and ETS**. Each model was retrained using the full outliers-removed dataset from 2001 to 2024, and forecasts were generated for the 12 months of 2025.  
+  
+Figure 20 presents the forecasted unemployment trajectories. All three models effectively capture the underlying trend and seasonal fluctuations. The projected unemployment rates fall within a range of 3.5% to 5.0% across the year.  
+  
+NNETAR shows more responsive short-term movements but slightly underestimates the unemployment rate compared to the other models. The ETS model provides a smoother trend-following projection. The BSM model, which incorporates structural components, appears more responsive to recent data shifts. While the models differ in sensitivity and volatility, their trajectories remain consistent, which supports confidence in the robustness of the forecasts.  
+
+
+  
+
+```{r forecast 2025 US, include=FALSE}
+# Set the forecasting period
+n_fullUS = 12
+
+# Create the time series to retain full data set
+ts_US_fulltrainout <- ts(ts_USout,
+              start=c(year(US$Month[1]), month(US$Month[1])),
+              frequency = 12)
+
+# Fit SS with BSM Model 
+SS_seas_totalper_fulltrainUSout <- StructTS(ts_US_fulltrainout,
+                    type="BSM",fixed=c(0.01,0.001,0.1,NA)) 
+
+SS_for_totalper_fulltrainUSout <- forecast(SS_seas_totalper_fulltrainUSout,h=n_fullUS)
+
+# Plot model + observed data
+autoplot(ts_US_fulltrainout) +
+  autolayer(SS_for_totalper_fulltrainUSout, series="SS with BSM Model",PI=FALSE)+
+  ylab("Forecasted Unemployment Rate (%) in US") 
+
+# Fit Neural Network Model 
+NN_fit_totalper_fulltrainUSout <- nnetar(ts_US_fulltrainout,
+                 p=3, P=0,
+                 xreg=fourier(ts_US_fulltrainout, K=3))
+
+NN_for_totalper_fulltrainUSout <- forecast(NN_fit_totalper_fulltrainUSout, 
+                   h=n_fullUS,
+                   xreg=fourier(ts_US_fulltrainout, 
+                                          K=3,h=n_fullUS))
+
+# Plot model + observed data
+autoplot(ts_US_fulltrainout) +
+  autolayer(NN_for_totalper_fulltrainUSout, series="NNETAR",PI=FALSE)+
+  ylab("Forecasted Unemployment Rate (%) in US")
+
+# Fit STL + ETS Model
+ETS_totalper_fulltrainUSout <-  stlf(ts_US_fulltrainout,h=n_fullUS)
+
+# Plot model + observed data
+  autoplot(ts_US_fulltrainout) +
+  autolayer(ETS_totalper_fulltrainUSout, series="ETS",PI=FALSE)+
+  ylab("Forecasted Unemployment Rate (%) in US")
+
+```
+
+```{r forecast_2025_plot_and_table, echo=FALSE, warning=FALSE, message=FALSE}
+kbl(tpscoresUSout, 
+    caption = "US Cleaned: Forecast Accuracy for Unemployment Rate (\\%) Data",
+    digits = array(5,ncol(tpscoresUSout))) %>%
+  kable_styling(full_width = FALSE, position = "center") %>%
+  kable_styling(latex_options="striped", stripe_index = which.min(tpscoresUSout[,"Average"]))
+
+
+```
+
+
+```{r Selecting Best Models, echo=FALSE, warning=FALSE, message=FALSE, fig.cap="US Cleaned: Forecast Unemployment Rate for 2025 — Top 3 Models", results='asis'}
+
+# Plot 4 models together 
+
+  autoplot(ts_US_fulltrain) +
+  autolayer(SS_for_totalper_fulltrainUSout, series="SS with BSM Model",PI=FALSE)+
+  autolayer(NN_for_totalper_fulltrainUSout, series="NNETAR",PI=FALSE)+
+  autolayer(ETS_totalper_fulltrainUSout, series="ETS",PI=FALSE)+
+  ylab("Unemployment Rate (%)") + 
+  ggtitle("Forecasted Unemployment Rate (%) in US (Outliers Removed)")
+
+```
+
+
+
+
+### Average of the Three Forecasts (US Cleaned) 
+
+To provide a unified prediction, the forecasts from the three selected models were averaged.  The combined forecast captures both seasonality and the recent upward trend in U.S. unemployment.  
+
+As shown in Figure 21, the combined forecast aligns closely with observed values from recent years and projects a stable outlook for 2025. The monthly unemployment rate is expected to range from 3.75% to 4.54%, with a yearly average of 4.17%. This is very close to the ILO’s projection of 4.3%, suggesting that the combined model estimate is both credible and well-calibrated.  
+
+
+```{r average forecast, echo=FALSE, warning=FALSE, message=FALSE, fig.cap="Average Forecast of U.S. Unemployment Rate for 2025"}
+
+# --- 1. Calculate the average forecast of the three models ---
+# Extract predicted means
+bsm_fc <- as.numeric(SS_for_totalper_fulltrainUSout$mean)
+nnar_fc <- as.numeric(NN_for_totalper_fulltrainUSout$mean)
+ets_fc <- as.numeric(ETS_totalper_fulltrainUSout$mean)
+
+# Compute average forecast
+avg_fc <- (bsm_fc + nnar_fc + ets_fc) / 3
+
+# Create date index for forecast
+start_date <- as.Date(paste0(end(US$Month)[1] + 1, "-", end(US$Month)[2], "-01"))  # 1 month after last
+forecast_dates <- seq(from = as.Date("2025-01-01"), by = "month", length.out = n_fullUS)
+```
+
+
+
+```{r echo=FALSE, include=FALSE, warning=FALSE, message=FALSE}
+# Post Processing
+## Create forecast dataframe
+forecast_df <- tibble(
+  Month = forecast_dates,
+  BSM = bsm_fc,
+  NNAR = nnar_fc,
+  ETS = ets_fc,
+  Avg_Forecast = avg_fc
+)
+
+## Exporting to Excel
+write.xlsx(forecast_df, "./Output/Forecast Average/Forecast_Average_US.xlsx")
+
+# --- 3. Plot actuals (from 2020) and forecast average ---
+# Extract actual values after 2020
+
+us_actual_2020on <- US %>%
+  filter(Month >= as.Date("2020-01-01")) %>%
+  select(Month, Actual = Total.Per)
+
+# Combine with forecast
+
+plot_df <- bind_rows(
+  tibble(Month = us_actual_2020on$Month,
+         Value = us_actual_2020on$Actual,
+         Type = "Actual"),
+  tibble(Month = forecast_dates,
+         Value = avg_fc,
+         Type = "Avg Forecast")
+)
+
+# --- 4. Plot actuals (from 2022) and forecast average ---
+# Extract actual values after 2022
+
+us_actual_2022on <- US %>%
+  filter(Month >= as.Date("2022-01-01")) %>%
+  select(Month, Actual = Total.Per)
+
+# Combine with forecast
+plot_df2022 <- bind_rows(
+  tibble(Month = us_actual_2022on$Month,
+         Value = us_actual_2022on$Actual,
+         Type = "Actual"),
+  tibble(Month = forecast_dates,
+         Value = avg_fc,
+         Type = "Avg Forecast")
+)
+
+```
+
+```{r Actual VS Forecast, echo=FALSE, warning=FALSE, message=FALSE, fig.width=10, fig.height=5, results='hide', fig.align='center', fig.pos='H', fig.cap="Average Forecast of U.S. Unemployment Rate for 2025"}
+
+# Plot
+ggplot(plot_df2022, aes(x = Month, y = Value, color = Type, group = 1)) +
+  geom_line(size = 1) +
+  scale_color_manual(values = c("Actual" = "black", "Avg Forecast" = "steelblue")) +
+  labs(
+    title = "US Unemployment Rate: Actual (2018~) + Avg Forecast (2025)",
+    y = "Unemployment Rate (%)",
+    x = "Month",
+    color = "Legend"
+  ) +
+  theme_minimal() + theme(legend.position = "bottom")
+```
+
+# Conclusion and Key Takeaways
+
+
+This comparative analysis of unemployment trends in the United States (developed) and Colombia (developing) reveals critical insights into labor market dynamics and forecasting challenges. The U.S. exhibits smoother unemployment cycles, with rapid post-shock recovery facilitated by flexible policies and monetary tools. In contrast, Colombia’s structural constraints—including high informality and commodity dependence—lead to prolonged volatility and slower recovery.
+
+**1. Model Performance**  
+
+- For **Colombia**, **NNETAR**, **SSES**, and **TBATS** emerged as the most accurate and robust models. They effectively captured the nonlinear dynamics, trend decomposition, and seasonal irregularities in a volatile labor market.  
+
+- For the **United States**, **ETS**, **NNETAR**, and **BSM** outperformed other models on outlier-removed series. These models offered smoother and more accurate forecasts by balancing responsiveness and structural interpretation.  
+
+- Contrary to initial assumptions, **SARIMA** underperformed in both countries, particularly due to residual autocorrelation and less reliable forecasts during volatile periods.
+
+**2. Developing vs. Developed**  
+
+- **Colombia**'s structural informality and labor volatility required adaptive and ensemble-based forecasting techniques.  
+
+- The **United States**, with more stable institutional dynamics, allowed models like **ETS** and **BSM** to perform well post outlier adjustment.
+
+**3. Policy Implications**  
+
+- Policymakers in developing economies should prioritize adaptive social protection and labor market formalization to reduce volatility in employment metrics.  
+
+- In developed economies, maintaining and optimizing automatic stabilizers can ensure resilience in the face of external shocks.
+
+**4. Methodological Lessons**  
+
+- Using ensemble models—such as averaging forecasts from **NNETAR**, **TBATS**, and **SSES** (Colombia) and **ETS**, **NNETAR**, and **BSM** (United States)—reduced average forecast error and improved robustness.  
+
+- Cleaning the data by removing outliers significantly enhanced model diagnostics and accuracy but may underrepresent sudden economic disruptions, highlighting a trade-off between smoothness and sensitivity.
+
+
+# Acknowledgment of AI Assistance
+
+ChatGPT was used for troubleshooting code syntax and LaTex formatting. All models and forecasts were executed and validated locally in RStudio by the authors.

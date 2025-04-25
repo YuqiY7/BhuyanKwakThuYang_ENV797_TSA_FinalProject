@@ -1,0 +1,37 @@
+---
+title: "Forecasting Unemployment Trends: A Comparative Time Series Analysis of Colombia
+  and the United States"
+author: "Aye Nyein Thu, Mazhar Bhuyan, Yuqi Yang, Jisup Kwak"
+date: "2025-04-25"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE,
+  message = FALSE,
+  warning = FALSE,
+  fig.align = "center"
+)
+```
+
+```{r packages, warning=FALSE, message=FALSE, include=FALSE}
+#library()
+
+```
+
+## 1. Introduction, Motivation, Relevance, and Objectives
+
+```{r, child = "Intro.Rmd"}
+```
+
+## 2. Dataset Description and Time Series Analysis
+
+
+## 3. Summary and Conclusions
+
+
+## 4. Appendix
+
+All project files, including data and code, are available at the following GitHub repository:  
+[https://github.com/YuqiY7/BhuyanKwakThuYang_ENV797_TSA_FinalProject](https://github.com/YuqiY7/BhuyanKwakThuYang_ENV797_TSA_FinalProject)
