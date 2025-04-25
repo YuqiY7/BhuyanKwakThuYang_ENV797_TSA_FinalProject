@@ -430,6 +430,42 @@ Since the original unemployment series for Colombia contained several irregulari
 - The cleaned series shows smoother transitions while maintaining the fundamental patterns observed in the original data.
 Thus, although both versions were tested, the **outlier-removed series was ultimately chosen** as the modeling base to ensure robust and interpretable forecasts.
 
+## Outlier Detection for the United States
+
+Outliers were identified using Grubbs’ test and a boxplot of the total unemployment rate. A clear outlier occurred in April 2020.  
+**Both the original series and the outlier-removed series will be used for model testing.**  
+  
+
+```{r outlier check, include=FALSE}
+# Check outliers 
+outlier(US) 
+grubbs.test(US$Age15to24.Thou) 
+grubbs.test(US$Age25above.Thou) # This is an outlier. 
+grubbs.test(US$Age15to24.Per) # This is an outlier. 
+grubbs.test(US$Age25above.Per) # This is an outlier. 
+grubbs.test(US$Female.Thou) # This is an outlier. 
+grubbs.test(US$Male.Thou) 
+grubbs.test(US$Female.Per) # This is an outlier. 
+grubbs.test(US$Male.Per)
+grubbs.test(US$Total.Thou) # This is an outlier. 
+grubbs.test(US$Total.Per) # This is an outlier. 
+```
+
+```{r outlier boxplot, echo=FALSE, message=FALSE, warning=FALSE}
+# Check the box plot for total unemployment 
+boxplot(US$Total.Per,
+        main = "Boxplot: US Unemployment Rate (%)",
+        horizontal = TRUE, 
+        col = "lightblue")
+
+# Find the row where Total.Per is the outlier (14.4%)
+outlier_rowUS <- US %>%
+  filter(Total.Per == max(Total.Per, na.rm = TRUE))
+
+cat("An outlier was detected in", format(outlier_rowUS$Month, "%B %Y"), ".") # Outlier is 2020-04-01. 
+
+```
+
 
 ## Analyzing Decomposition and Stationarity 
 
@@ -709,7 +745,7 @@ forecast::autoplot(forecast(SS_model, h=n_for))
 checkresiduals(SS_model)
 ```
 
-## Forecast Comparison and Best Model Selction
+## Forecast Comparison and Best Model Selction (Colombia)
 
 ```{r, echo=FALSE, warning=FALSE, message=FALSE, fig.width=10, fig.height=4, results='hide', fig.cap= "Colombia: 2024 Test vs. Forecasts"}
 
@@ -734,7 +770,7 @@ The forecast comparison shows seven time series models predicting Colombia's une
 
 This variation demonstrates fundamental differences in modeling approaches: machine learning methods like NNETAR capture nonlinear patterns effectively, while classical time series models maintain stronger adherence to structural relationships in the data. The 4-percentage-point range across forecasts highlights the inherent uncertainty in labor market projections and the importance of methodological transparency when interpreting results.
 
-## Accuracy Comparison for All Models
+## Accuracy Comparison for All Models (Colombia)
 
 
 
@@ -812,7 +848,7 @@ autoplot(ts_test, size = 1) +
 
 The final ensemble model—combining Neural Network AutoRegressive (NNETAR), State-Space Exponential Smoothing (SSES), and TBATS—was selected based on a balance of statistical robustness, forecast accuracy, and adaptability to Colombia’s labor market dynamics. While alternative models such as SARIMA and ARIMA with Fourier terms demonstrated strong individual performance in RMSE and MAPE, they exhibited limitations in residual diagnostics during periods of economic volatility. In contrast, the chosen models each address distinct aspects of the unemployment series: NNETAR captures nonlinear shocks through its flexible neural network structure, SSES provides a statistically rigorous framework for trend and seasonality decomposition, and TBATS ensures robustness against complex, evolving seasonal patterns. By averaging their forecasts, the ensemble mitigates individual model weaknesses while preserving their strengths, resulting in a 5.2% reduction in RMSE compared to the best standalone model (SSES) and more stable prediction intervals. This approach is particularly suited to Colombia’s labor market, where structural trends, abrupt economic shocks, and seasonal fluctuations coexist.
 
-## Unemployment Rate Forecast: 2025
+## Unemployment Rate Forecast: 2025 (Colombia)
 ### Forecast for 2025 with top 3 models
 
 ```{r, echo=FALSE, warning=FALSE, message=FALSE, fig.width=10, fig.height=4, results='hide', fig.align='center', fig.pos='H',fig.cap="Colombia Unemployment Rate with Forecasts (2001–2025)"}
@@ -941,17 +977,15 @@ The plot presents the ensemble forecast (2021–2026), averaging NNETAR, SSES, a
 
 \clearpage
 
-## Unemployment Model Fitting (United States)
+## Data Preparation and Decomposition for US (Original Series)
 
-### Training and Testing Window  
+### Training and Testing Window (US Original) 
   
-To facilitate time series forecasting, the cleaned U.S. unemployment dataset was transformed into a monthly multivariate time series object using the `ts()` function. The data span from January 2001 to December 2024, with monthly frequency. To evaluate model performance under realistic forecasting conditions, a 12-month horizon corresponding to the year 2024 was reserved as the testing period. The full dataset was split into two subsets:  
-A **training set**, consisting of observations from January 2001 to December 2023.  
-A **testing set**, consisting of observations from January 2024 to December 2024. 
+To facilitate time series forecasting, the cleaned U.S. unemployment dataset was transformed into a monthly multivariate time series object using the `ts()` function. The data span from January 2001 to December 2024, with monthly frequency. To evaluate model performance under realistic forecasting conditions, a 12-month horizon corresponding to the year 2024 was reserved as the testing period. The full dataset was split into two subsets: A training set, consisting of observations from January 2001 to December 2023. A testing set, consisting of observations from January 2024 to December 2024.  
   
 Figure 8 shows the unemployment rate for both the training and testing periods.  
 
-```{r time series, echo=FALSE, message=FALSE, warning=FALSE, fig.cap="Time series plots of the training and testing sets", fig.width=8, fig.height=4, results='hide'}
+```{r time series, echo=FALSE, message=FALSE, warning=FALSE, fig.cap="US Original: Training and Testing Sets", fig.width=8, fig.height=4, results='hide'}
 # Transform into time series
 ts_US <- ts(US[,2:11],
               start=c(year(US$Month[1]), month(US$Month[1])),
@@ -983,7 +1017,7 @@ grid.arrange(trainUS, testUS, ncol = 2)
 To assess the temporal dependence structure of the training data, the autocorrelation function and partial autocorrelation function were examined. 
   
 
-```{r ACF PACF, echo=FALSE, message=FALSE, warning=FALSE, fig.cap="ACF and PACF plot of the training data"}
+```{r ACF PACF, echo=FALSE, message=FALSE, warning=FALSE, fig.cap="US Original: ACF and PACF of Training Set"}
 # Plot ACF and PACF
 par(mfrow=c(1,2))
 Acf(ts_US_train[,"Total.Per"], lag=40, plot = TRUE, main = "")
@@ -993,22 +1027,21 @@ par(mfrow=c(1,1))
 
 As shown in Figure 9, the ACF decays slowly across lags, indicating the presence of non-stationarity and persistent autocorrelation. The PACF shows a cut off at lag 1. These patterns suggest that the series may be non-stationary with strong autocorrelation.
 
-### Decomposing the time series for US (Original)  
+### Decomposing the time series (US Original)  
   
 The training series was decomposed into trend, seasonal, and irregular components using classical seasonal decomposition.  
 
 Figure 10 shows a strong seasonal pattern and a pronounced outlier around 2020, likely associated with the COVID-19 shock.  
 
-```{r fig:decomp_us, echo=FALSE, warning=FALSE, message=FALSE, fig.cap="Decomposition of the training set", fig.width=8, fig.height=4, results='hide'}
+```{r fig:decomp_us, echo=FALSE, warning=FALSE, message=FALSE, fig.cap="US Original: Decomposition of Training set", fig.width=8, fig.height=4, results='hide'}
 # Decompose 
 decom_totalper_trainUS <- decompose(ts_US_train[,"Total.Per"])
 plot(decom_totalper_trainUS)
 ```
 
-To remove the seasonal component, a seasonally adjusted series was generated using the `seasadj()` function.
+To remove the seasonal component, a seasonally adjusted series was generated using the `seasadj()` function. The result is shown in Figure 11.
   
-
-```{r fig:deseas_us, echo=FALSE, warning=FALSE, message=FALSE, fig.cap="Seasonally adjusted U.S. unemployment rate",fig.width=8, fig.height=4, results='hide'}
+```{r fig:deseas_us, echo=FALSE, warning=FALSE, message=FALSE, fig.cap="US Original: Seasonally Adjusted Series",fig.width=8, fig.height=4, results='hide'}
 # Deseason 
 deseas_totalper_trainUS <- seasadj(decom_totalper_trainUS)  
 plot(deseas_totalper_trainUS)
@@ -1043,8 +1076,10 @@ The number of differences required to achieve stationarity was evaluated using t
 # print(ndiffs(deseas_totalper_trainUS))
 ```
 
-## Testing Time Series Models for US (Original)  
-  
+## Modeling and Forecasting for US (Original Series)  
+
+### Test Time Series Models (US Original)
+
 Eleven time series models were implemented to forecast the U.S. unemployment rate and evaluate predictive performance in this analysis:  
   
 1. **Seasonal Naïve (SNAIVE)** replicates the seasonal pattern from the previous year as a baseline.  
@@ -1155,13 +1190,13 @@ plot(SS_for_totalperUS)
 checkresiduals(SS_seas_totalperUS) # Residuals are not iid. 
 ```
 
-### Performance check for time series models (Original) 
+### Performance check (US Original)
   
 To assess out-of-sample performance, forecasts were generated for the 12-month testing period in 2024 and compared to observed unemployment rates. Model accuracy was evaluated using six standard metrics: Mean Error (ME), Root Mean Squared Error (RMSE), Mean Absolute Error (MAE), Mean Percentage Error (MPE), Mean Absolute Percentage Error (MAPE), autocorrelation at lag 1 (ACF1), and Theil’s U statistic. A composite score was calculated as the average of RMSE and MAPE.  
 
 The results are summarized in Table 3. Based on the average of RMSE and MAPE, the State Space with BSM delivered the best forecast accuracy, followed by the SES and ARIMA models.  
 
-For visual comparison, Figure 6 displays the test set alongside forecasted values from selected models. SMA and SSES were excluded due to technical issues. Notably, the NNETAR model failed to capture the sharp spike observed in the actual 2024 data.  
+For visual comparison, Figure 12 displays the test set alongside forecasted values from selected models. SMA and SSES were excluded due to technical issues. Notably, the NNETAR model failed to capture the sharp spike observed in the actual 2024 data.  
 
 ```{r accuracy US, echo=FALSE, warning=FALSE, message=FALSE, fig.width=10, fig.height=4 }
 # Check accuracy of the models
@@ -1197,7 +1232,7 @@ cat("The best model by Average is:", row.names(tpscoresUS[best_model_index_tpUS,
 
 ```
 
-```{r forecast plot, echo=FALSE, warning=FALSE, message=FALSE, fig.cap="Forecast Comparison Across Models"}
+```{r forecast plot, echo=FALSE, warning=FALSE, message=FALSE, fig.cap="US Original: Forecast Comparison Across Models"}
 # Plot everything together
 autoplot(ts_US_test[,"Total.Per"]) +
   autolayer(SNAIVE_deseas_totalperUS, PI=FALSE, series="SNAIVE") + 
@@ -1215,18 +1250,18 @@ autoplot(ts_US_test[,"Total.Per"]) +
 ```{r Errors Plot, echo=FALSE, warning=FALSE, message=FALSE, fig.cap="Forecast Comparison Across Models"}
 # Create Tables 
 kbl(tpscoresUS, 
-      caption = "Forecast Accuracy for Unemployment Rate (\\%) Data",
+      caption = "US Original: Forecast Accuracy for Unemployment Rate (\\%) Data",
       digits = array(5,ncol(tpscoresUS))) %>%
   kable_styling(full_width = FALSE, position = "center") %>%
   #highlight model with lowest RMSE
   kable_styling(latex_options="striped", stripe_index = which.min(tpscoresUS[,"Average"]))
 ```
 
-### Analysis of the best three models for US (Original)  
+### Forecast for 2025 with Best Three Models (US Original)  
   
 To forecast U.S. unemployment trends for 2025, the three best-performing models based on out-of-sample accuracy, **Basic Structural Model (BSM), Simple Exponential Smoothing (SES), and ARIMA**, were retrained using the full dataset from January 2001 to December 2024. Each model was then used to generate 12-month ahead forecasts for the year 2025.  
 
-Figure 7 presents the overlay of all three forecasted series against the historical unemployment trend. While all models project a relatively stable unemployment rate in 2025, the BSM model shows slightly more variation. The SES and ARIMA models produce smoother forecasts.  
+Figure 13 presents the overlay of all three forecasted series against the historical unemployment trend. While all models project a relatively stable unemployment rate in 2025, the BSM model shows slightly more variation. The SES and ARIMA models produce smoother forecasts.  
 
 ```{r forecast 2025 US original, include=FALSE}
 # Set the forecasting period
@@ -1275,7 +1310,7 @@ autoplot(ts_US_fulltrain) +
   ylab("Forecasted Unemployment Rate (%) in US") 
 ```
 
-```{r forecast result 2025 US original, echo=FALSE, warning=FALSE, message=FALSE, fig.cap="Forecasts U.S. Unemployment Rate in 2025 from Top Three Models"}
+```{r forecast result 2025 US original, echo=FALSE, warning=FALSE, message=FALSE, fig.cap="US Original: Forecast Unemployment Rate for 2025 — Top 3 Models"}
 # Plot 3 models together 
 autoplot(ts_US_fulltrain) +
   autolayer(SS_for_totalper_fulltrainUS, series="SS with BSM Model",PI=FALSE)+
@@ -1286,15 +1321,15 @@ autoplot(ts_US_fulltrain) +
 ```
 
 
-## Analysis of the best three models for US (Outliers-removed Series)
+## Data Preparation and Decomposition for US (Outliers-Removed Series)
 
 While the original unemployment series revealed meaningful seasonal and trend components, it also included extreme fluctuations, particularly during the COVID-19 period. To ensure model robustness, an outlier-adjusted version of the series was created and analyzed using the same framework as the original. This section presents the results based on the outliers-removed dataset.  
 
-### Transform into time series and set training and testing windows for US (Cleaned)   
+### Training and Testing Window (US Cleaned) 
   
-To address extreme deviations, the original unemployment rate series was smoothed using the `tsclean()` function. As shown in Figure 8, the adjusted series closely follows the original trajectory, except for a visibly reduced spike in early 2020.  
+To address extreme deviations, the original unemployment rate series was smoothed using the `tsclean()` function. As shown in Figure 14, the adjusted series closely follows the original trajectory, except for a visibly reduced spike in early 2020.  
 
-```{r Remove outliers US, echo=FALSE, warning=FALSE, message=FALSE, fig.cap="Comparison of Original and Outliers-removed Series (US)"}
+```{r Remove outliers US, echo=FALSE, warning=FALSE, message=FALSE, fig.cap="US Original vs Outliers-Removed Series"}
 # Remove outliers 
 ts_USout <- tsclean(ts_US[,"Total.Per"]) 
 
@@ -1303,9 +1338,9 @@ autoplot(ts_USout, series="Outliers-removed Series") +
   ylab("Unemployment Rate (%)") 
 ```
 
-Following the same procedure as before, the outliers-removed series was split into a training set (January 2001 to December 2023) and a testing set (January to December 2024). These segments are illustrated in Figure 9.  
+Following the same procedure as before, the outliers-removed series was split into a training set (January 2001 to December 2023) and a testing set (January to December 2024). These segments are illustrated in Figure 15.  
 
-```{r train test outlier, echo=FALSE, warning=FALSE, message=FALSE, fig.cap="Time series plots of the training and testing sets (Outliers-Removed Series)"}
+```{r train test outlier, echo=FALSE, warning=FALSE, message=FALSE, fig.cap="US Cleaned: Training and Testing Sets"}
 # Create a subset for training purpose 
 ts_US_trainout <- ts(ts_USout[1:(nobsUS-n_forUS)],
                     start=c(year(US$Month[1]), month(US$Month[1])),
@@ -1324,28 +1359,28 @@ testUSout <- autoplot(ts_US_testout) + ylab("Unemployment Rate (%)") +
 grid.arrange(trainUSout, testUSout, ncol = 2)
 ```
 
-Temporal dependence was assessed using ACF and PACF plots. As shown in Figure 10, the outliers-removed series retains strong autocorrelation, with a slow ACF decay and a sharp PACF cut-off at lag 1, indicating the underlying dependency structure remains intact.  
+Temporal dependence was assessed using ACF and PACF plots. As shown in Figure 16, the outliers-removed series retains strong autocorrelation, with a slow ACF decay and a sharp PACF cut-off at lag 1, indicating the underlying dependency structure remains intact.  
 
-```{r acf pacf outlier, echo=FALSE, warning=FALSE, message=FALSE, fig.cap="ACF and PACF plot of the training data (Outliers-Removed Series)"}
+```{r acf pacf outlier, echo=FALSE, warning=FALSE, message=FALSE, fig.cap="US Cleaned: ACF and PACF of Training Set"}
 par(mfrow=c(1,2))
 Acf(ts_US_trainout, lag=40, plot = TRUE, main = "")
 Pacf(ts_US_trainout, lag=40, plot = TRUE, main = "")
 par(mfrow=c(1,1))
 ```
 
-### Decompose the time series for US (Outliers)  
+### Decompose the time series (US Cleaned)  
   
-The outliers-removed training set was decomposed into trend, seasonal, and irregular components using classical additive decomposition. As shown in Figure 11, the seasonal pattern remains strong, and the COVID-related spike appears in the irregular component, though its magnitude is attenuated.  
+The outliers-removed training set was decomposed into trend, seasonal, and irregular components using classical additive decomposition. As shown in Figure 17, the seasonal pattern remains strong, and the COVID-related spike appears in the irregular component, though its magnitude is attenuated.  
 
-```{r fig:decomp_us_o, echo=FALSE, warning=FALSE, message=FALSE, fig.cap="Decomposition of the training set (Outliers-Removed Series)"}
+```{r fig:decomp_us_o, echo=FALSE, warning=FALSE, message=FALSE, fig.cap="US Cleaned: Decomposition of Training Set"}
 # Decompose 
 decom_totalper_trainUSout <- decompose(ts_US_trainout)
 plot(decom_totalper_trainUSout)
 ```
 
-To remove the seasonal effect, a seasonally adjusted series was created using the `seasadj()`. The deseasonalized series is plotted in Figure 12.  
+To remove the seasonal effect, a seasonally adjusted series was created using the `seasadj()`. The deseasonalized series is plotted in Figure 18.  
 
-```{r fig:deseas_us_o, echo=FALSE, warning=FALSE, message=FALSE, fig.cap="Seasonally adjusted U.S. unemployment rate (Outliers-Removed Series)"}
+```{r fig:deseas_us_o, echo=FALSE, warning=FALSE, message=FALSE, fig.cap="US Cleaned: Seasonally Adjusted Series"}
 # Deseason 
 deseas_totalper_trainUSout <- seasadj(decom_totalper_trainUSout)  
 plot(deseas_totalper_trainUSout)
@@ -1381,8 +1416,10 @@ The `ndiffs()` function indicated that both the original and deseasoned series r
 ```
 
 
-## Testing Time Series Models for US (Cleaned)  
-  
+## Testing Time Series Models for US (Outliers-Removed Series)
+
+### Test Time Series Models (US Cleaned) 
+
 To evaluate model robustness, the same eleven forecasting models were applied to the outliers-removed series. Each model was assessed using residual diagnostics based on the `checkresiduals()` function, which includes ACF plots and the Ljung-Box test.  
   
 1. **SNAIVE**: Residuals exhibited strong seasonal autocorrelation and failed the white noise test (p < 2.2e-16), confirming model inadequacy.  
@@ -1486,7 +1523,7 @@ plot(SS_for_totalperUSout)
 checkresiduals(SS_seas_totalperUSout) # Residuals are not iid. 
 ```
 
-## Performance check for US (Cleaned)  
+### Performance check (US Cleaned)  
   
 To evaluate forecast performance, all eleven models were assessed against the 2024 testing set. Forecast accuracy was measured using multiple criteria, including RMSE, MAE, MAPE, and an average score calculated as the mean of RMSE and MAPE.  
 
@@ -1496,7 +1533,7 @@ The ETS and BSM models also performed well, with average errors below 1.34 and M
 
 In contrast, baseline models such as SNAIVE, SMA, and SES showed higher average errors (> 4.0), highlighting their limited adaptability to the adjusted series. Models like ARIMA + Fourier, TBATS, and SSES also underperformed, with average errors exceeding 5 and persistent autocorrelation, suggesting poor fit even after outlier removal.  
 
-Figure 12 displays forecast trajectories alongside actual unemployment data in 2024. The top models (NNETAR, ETS, BSM) closely tracked observed trends, while models like SNAIVE, SES, and TBATS showed visible deviations, consistent with the quantitative rankings.  
+Figure 19 displays forecast trajectories alongside actual unemployment data in 2024. The top models (NNETAR, ETS, BSM) closely tracked observed trends, while models like SNAIVE, SES, and TBATS showed visible deviations, consistent with the quantitative rankings.  
   
 ```{r accuracy, echo=FALSE, warning=FALSE, message=FALSE}
 # Check accuracy of the models
@@ -1532,7 +1569,7 @@ cat("The best model by Average is:", row.names(tpscoresUSout[best_model_index_tp
 
 ```
 
-```{r forecast plot outlier, echo=FALSE, warning=FALSE, message=FALSE, fig.cap="Forecast Comparison Across Models (Outliers Removed)"}
+```{r forecast plot outlier, echo=FALSE, warning=FALSE, message=FALSE, fig.cap="US Cleaned: Forecast Comparison Across Models"}
 
 # Plot everything together
   autoplot(ts_US_testout) +
@@ -1548,21 +1585,21 @@ cat("The best model by Average is:", row.names(tpscoresUSout[best_model_index_tp
   guides(colour=guide_legend(title="Forecast")) # SMA and SSES could not run
 ```
 
-```{r Selecting Best Models, echo=FALSE, warning=FALSE, message=FALSE, fig.cap="Forecast Comparison Across Models (Outliers Removed)"}
+```{r Selecting Best Models, echo=FALSE, warning=FALSE, message=FALSE, fig.cap="US Cleaned: Forecast Comparison Across Models"}
 # Create Tables 
 kbl(tpscoresUSout, 
-      caption = "Forecast Accuracy for Unemployment Rate (\\%) Data",
+      caption = "US Cleaned: Forecast Accuracy for Unemployment Rate (\\%) Data",
       digits = array(5,ncol(tpscoresUSout))) %>%
   kable_styling(full_width = FALSE, position = "center") %>%
   #highlight model with lowest RMSE
   kable_styling(latex_options="striped", stripe_index = which.min(tpscoresUSout[,"Average"]))
 ```
 
-## Forecast for 2025 with the best three models for US (Cleaned)  
-  
+### Forecast for 2025 with Best Three Models (US Cleaned) 
+
 To forecast the U.S. unemployment rate for 2025, the three models with the best performance in the previous section were selected: **State Space with BSM, NNETAR, and ETS**. Each model was retrained using the full outliers-removed dataset from 2001 to 2024, and forecasts were generated for the 12 months of 2025.  
   
-Figure 14 presents the forecasted unemployment trajectories. All three models effectively capture the underlying trend and seasonal fluctuations. The projected unemployment rates fall within a range of 3.5% to 5.0% across the year.  
+Figure 20 presents the forecasted unemployment trajectories. All three models effectively capture the underlying trend and seasonal fluctuations. The projected unemployment rates fall within a range of 3.5% to 5.0% across the year.  
   
 NNETAR shows more responsive short-term movements but slightly underestimates the unemployment rate compared to the other models. The ETS model provides a smoother trend-following projection. The BSM model, which incorporates structural components, appears more responsive to recent data shifts. While the models differ in sensitivity and volatility, their trajectories remain consistent, which supports confidence in the robustness of the forecasts.  
   
@@ -1612,7 +1649,7 @@ autoplot(ts_US_fulltrainout) +
   ylab("Forecasted Unemployment Rate (%) in US")
 ```
 
-```{r forecast result 2025 US outlier, echo=FALSE, warning=FALSE, message=FALSE, fig.cap="Forecasts from Top Three Models (2025, US, Outliers-Removed)"}
+```{r forecast result 2025 US outlier, echo=FALSE, warning=FALSE, message=FALSE, fig.cap="US Cleaned: Forecast Unemployment Rate for 2025 — Top 3 Models"}
 # Plot 4 models together 
 autoplot(ts_US_fulltrain) +
   autolayer(SS_for_totalper_fulltrainUSout, series="SS with BSM Model",PI=FALSE)+
@@ -1623,11 +1660,11 @@ autoplot(ts_US_fulltrain) +
 ```
 
 
-### The average of 3 forecasts  
+### Average of the Three Forecasts (US Cleaned) 
 
 To provide a unified prediction, the forecasts from the three selected models were averaged.  The combined forecast captures both seasonality and the recent upward trend in U.S. unemployment.  
 
-As shown in Figure 15, the combined forecast aligns closely with observed values from recent years and projects a stable outlook for 2025. The monthly unemployment rate is expected to range from 3.75% to 4.54%, with a yearly average of 4.17%. This is very close to the ILO’s projection of 4.3%, suggesting that the combined model estimate is both credible and well-calibrated.  
+As shown in Figure 21, the combined forecast aligns closely with observed values from recent years and projects a stable outlook for 2025. The monthly unemployment rate is expected to range from 3.75% to 4.54%, with a yearly average of 4.17%. This is very close to the ILO’s projection of 4.3%, suggesting that the combined model estimate is both credible and well-calibrated.  
 
 
 ```{r average forecast, echo=FALSE, warning=FALSE, message=FALSE, fig.cap="Average Forecast of U.S. Unemployment Rate for 2025"}
@@ -1699,7 +1736,7 @@ plot_df2022 <- bind_rows(
 
 ```
 
-```{r Actual VS Forecast, echo=FALSE, warning=FALSE, message=FALSE, fig.width=10, fig.height=5, results='hide', fig.align='center', fig.pos='H', fig.cap="US Unemployment Rate: Actual (2018~) + Avg Forecast (2025)"}
+```{r Actual VS Forecast, echo=FALSE, warning=FALSE, message=FALSE, fig.width=10, fig.height=5, results='hide', fig.align='center', fig.pos='H', fig.cap="Average Forecast of U.S. Unemployment Rate for 2025"}
 
 # Plot
 ggplot(plot_df2022, aes(x = Month, y = Value, color = Type, group = 1)) +
