@@ -3,6 +3,8 @@ title: 'Forecasting Unemployment Trends: A Comparative Time Series Analysis of C
 author: "Aye Nyein Thu, Mazhar Bhuyan, Yuqi Yang, Jisup Kwak"
 date: "2025-04-25"
 output: pdf_document
+editor_options: 
+  chunk_output_type: console
 ---
 
 ## 2.2 United States
