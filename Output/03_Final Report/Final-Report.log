@@ -1,4 +1,4 @@
-This is XeTeX, Version 3.141592653-2.6-0.999997 (TeX Live 2025) (preloaded format=xelatex 2025.4.22)  25 APR 2025 14:51
+This is XeTeX, Version 3.141592653-2.6-0.999997 (TeX Live 2025) (preloaded format=xelatex 2025.4.22)  25 APR 2025 15:11
 entering extended mode
  restricted \write18 enabled.
  %&-line parsing enabled.
@@ -983,7 +983,7 @@ Underfull \hbox (badness 10000) in paragraph at lines 746--749
 File: Final-Report_files/figure-latex/forecast plot-1.pdf Graphic file (type pdf)
 <use Final-Report_files/figure-latex/forecast plot-1.pdf>
 
-Overfull \hbox (32.20493pt too wide) in paragraph at lines 801--828
+Overfull \hbox (22.20493pt too wide) in paragraph at lines 801--828
  [][] 
  []
 
@@ -1090,19 +1090,21 @@ File: Final-Report_files/figure-latex/Actual VS Forecast-1.pdf Graphic file (typ
 
 [31]
 
-[32] (./Final-Report.aux)
+[32]
+
+[33] (./Final-Report.aux)
  ***********
 LaTeX2e <2024-11-01> patch level 2
 L3 programming layer <2025-03-26>
  ***********
  ) 
 Here is how much of TeX's memory you used:
- 18731 strings out of 472283
- 353797 string characters out of 5529458
- 880538 words of memory out of 5000000
- 44926 multiletter control sequences out of 15000+600000
+ 18733 strings out of 472283
+ 353811 string characters out of 5529458
+ 880568 words of memory out of 5000000
+ 44928 multiletter control sequences out of 15000+600000
  633350 words of font info for 90 fonts, out of 8000000 for 9000
  14 hyphenation exceptions out of 8191
  90i,9n,114p,355b,420s stack positions out of 10000i,1000n,20000p,200000b,200000s
 
-Output written on Final-Report.pdf (32 pages).
+Output written on Final-Report.pdf (33 pages).

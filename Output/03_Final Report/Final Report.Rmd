@@ -895,8 +895,8 @@ forecast_df_2025 <- tibble(
   Average = avg_forecast_2025
 )
 
-# --- Export forecast to Excel ---
-write.xlsx(forecast_df_2025, "./Forecast_2025_Top3_Colombia.xlsx")
+# # --- Export forecast to Excel ---
+# write.xlsx(forecast_df_2025, "./Forecast_2025_Top3_Colombia.xlsx")
 
 # 1. Combine actual with each model forecast
 full_plot_df_models <- bind_rows(
@@ -1789,6 +1789,12 @@ This comparative analysis of unemployment trends in the United States (developed
 - Using ensemble models—such as averaging forecasts from **NNETAR**, **TBATS**, and **SSES** (Colombia) and **ETS**, **NNETAR**, and **BSM** (United States)—reduced average forecast error and improved robustness.  
 
 - Cleaning the data by removing outliers significantly enhanced model diagnostics and accuracy but may underrepresent sudden economic disruptions, highlighting a trade-off between smoothness and sensitivity.
+
+# GitHub
+
+All project files, including data and code, are available at the following GitHub repository:  
+**[<span style="color:blue;">BhuyanKwakThuYang</span>](https://github.com/YuqiY7/BhuyanKwakThuYang_ENV797_TSA_FinalProject)**
+
 
 
 # Acknowledgment of AI Assistance
